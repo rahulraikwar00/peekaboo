@@ -1,0 +1,17 @@
+# Python environments and generated files
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Peekaboo credentials
+.peekaboo/
+cli/.peekaboo/
+
+# Local demo website
+/testweb/
+
+# Local tooling
+.pytest_cache/
+.vscode/
+.DS_Store
