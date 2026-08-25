@@ -50,6 +50,17 @@ visitors = {}
 operators = {}
 
 
+@app.get("/")
+async def root():
+    return {
+        "name": "Peekaboo",
+        "status": "running",
+        "health": "/health",
+        "widget": "/widget/pboo.js",
+        "installer": "/install.sh",
+    }
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
