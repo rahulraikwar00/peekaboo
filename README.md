@@ -78,6 +78,26 @@ After deployment, use the Render URL in the website embed:
 ></script>
 ```
 
+## Secure chat controls
+
+The owner CLI displays a conversation ID for each visitor. Reply to one visitor with:
+
+```text
+/reply CONVERSATION_ID MESSAGE
+```
+
+Messages are limited to 4 KB, visitor connections are rate limited, terminal control characters are removed, and the widget reconnects with bounded exponential backoff.
+
+## Widget customization
+
+The editable widget files live in `server/widget/`:
+
+- `widget.html` contains the chat markup.
+- `styles.css` contains the colors, spacing, and responsive layout.
+- `pboo.js` loads those files, creates the Shadow DOM, and handles WebSocket messaging.
+
+Website owners still install the widget with only the generated `script` tag.
+
 Configure the CLI for the deployed server:
 
 ```bash
@@ -93,3 +113,14 @@ peekaboo listen
 ```
 
 The current site store is in memory, so site credentials are lost whenever the Render service restarts. Add a database before production use.
+
+### Which HTML is needed?
+
+Website owners do not need to copy `server/widget/index.html`. That file is only a preview page. They only add the script tag printed by `peekaboo setup` to their own HTML:
+
+```html
+<script
+  src="https://your-service.onrender.com/widget/pboo.js"
+  data-site="YOUR_SITE_ID"
+></script>
+```

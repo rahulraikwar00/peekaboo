@@ -1,3 +1,6 @@
 fastapi
 uvicorn
 websockets
+pytest
+httpx2
+supabase
