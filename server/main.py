@@ -1,8 +1,7 @@
 from pathlib import Path
 import shlex
-import sys
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 import secrets
@@ -24,18 +23,37 @@ app.mount(
 
 
 @app.get("/install.sh", response_class=PlainTextResponse)
-async def install_script():
-    python_executable = shlex.quote(sys.executable)
+async def install_script(request: Request):
+    server_url = shlex.quote(str(request.base_url).rstrip("/"))
 
     return f'''#!/bin/sh
 set -eu
 
+command -v curl >/dev/null 2>&1 || {{ echo "curl is required" >&2; exit 1; }}
+command -v python3 >/dev/null 2>&1 || {{ echo "python3 is required" >&2; exit 1; }}
+
 install_dir="$HOME/.local/bin"
+app_dir="$HOME/.peekaboo"
 mkdir -p "$install_dir"
+mkdir -p "$app_dir/cli"
+
+python3 -m venv "$app_dir/venv"
+"$app_dir/venv/bin/python" -m pip install --quiet websockets
+
+curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/init.py -o "$app_dir/cli/init.py"
+curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/main.py -o "$app_dir/cli/main.py"
+curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/peekaboo.py -o "$app_dir/cli/peekaboo.py"
 
 cat > "$install_dir/peekaboo" <<'PEEKABOO_COMMAND'
 #!/bin/sh
-exec {python_executable} -m cli.peekaboo "$@"
+set -eu
+app_dir="$HOME/.peekaboo"
+server_url={server_url}
+case "${{1:-}}" in
+    listen) server_url="wss://${{server_url#https://}}" ;;
+    *) server_url="$server_url" ;;
+esac
+PEEKABOO_SERVER_URL="$server_url" PYTHONPATH="$app_dir" exec "$app_dir/venv/bin/python" -m cli.peekaboo "$@"
 PEEKABOO_COMMAND
 
 chmod +x "$install_dir/peekaboo"
