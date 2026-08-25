@@ -1,49 +1,104 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Peekaboo | Terminal chat for your website</title>
-    <link rel="stylesheet" href="/site/styles.css">
+    <link rel="stylesheet" href="/site/styles.css" />
   </head>
   <body>
     <main class="shell">
       <nav>
         <a class="brand" href="/">peekaboo<span>.</span></a>
-        <a class="github" href="https://github.com/rahulraikwar00/peekaboo" target="_blank" rel="noreferrer">View on GitHub ↗</a>
+        <a
+          class="github"
+          href="https://github.com/rahulraikwar00/peekaboo"
+          target="_blank"
+          rel="noreferrer"
+          >View on GitHub ↗</a
+        >
       </nav>
 
       <section class="hero">
         <p class="eyebrow">A tiny bridge between your site and your terminal</p>
-        <h1>Talk to your visitors<br><em>without another dashboard.</em></h1>
-        <p class="intro">Add one script to your website. Visitors get a floating chat portal, and you answer directly from your terminal.</p>
+        <h1>Talk to your visitors<br /><em>without another dashboard.</em></h1>
+        <p class="intro">
+          Add one script to your website. Visitors get a floating chat portal,
+          and you answer directly from your terminal.
+        </p>
         <div class="install">
           <span>$</span>
-          <code>curl -fsSL https://peekaboo-477i.onrender.com/install.sh | sh</code>
-          <button type="button" data-copy="curl -fsSL https://peekaboo-477i.onrender.com/install.sh | sh">Copy</button>
+          <code
+            >curl -fsSL https://peekaboo-477i.onrender.com/install.sh | sh</code
+          >
+          <button
+            type="button"
+            data-copy="curl -fsSL https://peekaboo-477i.onrender.com/install.sh | sh"
+          >
+            Copy
+          </button>
         </div>
       </section>
 
       <section class="steps" aria-label="Setup steps">
-        <article><b>01</b><h2>Install</h2><p>Run the command above, then make the CLI available in your shell.</p><code>export PATH="$HOME/.local/bin:$PATH"</code></article>
-        <article><b>02</b><h2>Create your site</h2><p>Generate a unique site ID and save your private operator token.</p><code>peekaboo setup</code></article>
-        <article><b>03</b><h2>Paste one tag</h2><p>Add the printed snippet to your website. The chat button appears automatically.</p><code>&lt;script data-site="..."&gt;</code></article>
-        <article><b>04</b><h2>Start listening</h2><p>Keep this running while visitors send messages from your website.</p><code>peekaboo listen</code></article>
+        <article>
+          <b>01</b>
+          <h2>Install</h2>
+          <p>
+            Run the command above, then make the CLI available in your shell.
+          </p>
+          <code>export PATH="$HOME/.local/bin:$PATH"</code>
+        </article>
+        <article>
+          <b>02</b>
+          <h2>Create your site</h2>
+          <p>Generate a unique site ID and save your private operator token.</p>
+          <code>peekaboo setup</code>
+        </article>
+        <article>
+          <b>03</b>
+          <h2>Paste one tag</h2>
+          <p>
+            Add the printed snippet to your website. The chat button appears
+            automatically.
+          </p>
+          <code>&lt;script data-site="..."&gt;</code>
+        </article>
+        <article>
+          <b>04</b>
+          <h2>Start listening</h2>
+          <p>
+            Keep this running while visitors send messages from your website.
+          </p>
+          <code>peekaboo listen</code>
+        </article>
       </section>
 
       <section class="flow">
-        <div><p class="eyebrow">How it works</p><h2>One server.<br>Two quiet connections.</h2></div>
-        <div class="diagram"><span>Visitor<br><small>browser widget</small></span><i>↔</i><strong>Peekaboo<br><small>message relay</small></strong><i>↔</i><span>Owner<br><small>terminal CLI</small></span></div>
+        <div>
+          <p class="eyebrow">How it works</p>
+          <h2>One server.<br />Two quiet connections.</h2>
+        </div>
+        <div class="diagram">
+          <span>Visitor<br /><small>browser widget</small></span
+          ><i>↔</i><strong>Peekaboo<br /><small>message relay</small></strong
+          ><i>↔</i><span>Owner<br /><small>terminal CLI</small></span>
+        </div>
       </section>
 
-      <footer><span>Peekaboo is open source.</span><a href="/health">Service health</a><a href="/widget/pboo.js">Widget bundle</a></footer>
+      <footer>
+        <span>Peekaboo is open source.</span><a href="/health">Service health</a
+        ><a href="/widget/pboo.js">Widget bundle</a>
+      </footer>
     </main>
     <script>
       document.querySelectorAll("[data-copy]").forEach((button) => {
         button.addEventListener("click", async () => {
           await navigator.clipboard.writeText(button.dataset.copy);
           button.textContent = "Copied";
-          setTimeout(() => { button.textContent = "Copy"; }, 1400);
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1400);
         });
       });
     </script>
