@@ -3,17 +3,23 @@ import shlex
 import sys
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 import secrets
 
 app = FastAPI()
 
 WIDGET_ROOT = Path(__file__).resolve().parent / "widget"
+SITE_ROOT = Path(__file__).resolve().parent / "site"
 app.mount(
     "/widget",
     StaticFiles(directory=WIDGET_ROOT),
     name="widget",
+)
+app.mount(
+    "/site",
+    StaticFiles(directory=SITE_ROOT),
+    name="site",
 )
 
 
@@ -52,13 +58,8 @@ operators = {}
 
 @app.get("/")
 async def root():
-    return {
-        "name": "Peekaboo",
-        "status": "running",
-        "health": "/health",
-        "widget": "/widget/pboo.js",
-        "installer": "/install.sh",
-    }
+    page = (SITE_ROOT / "index.html").read_text()
+    return HTMLResponse(page)
 
 
 @app.get("/health")
