@@ -83,6 +83,8 @@ def test_visitor_message_is_scoped_and_size_limited():
             ) as visitor:
                 connected = json.loads(operator.receive_text())
                 conversation_id = connected["conversation_id"]
+                # Drain initial owner.status message
+                json.loads(visitor.receive_text())
                 visitor.send_text("<script>alert(1)</script>")
                 event = json.loads(operator.receive_text())
                 assert event["conversation_id"] == conversation_id
@@ -114,6 +116,12 @@ def test_operator_reply_does_not_cross_conversations():
                     "conversation_id"]
                 second_id = json.loads(operator.receive_text())[
                     "conversation_id"]
+                # Drain initial owner.status messages
+                # first visitor gets 2 (one on connect, one when second connects)
+                # second visitor gets 1 (when it connects)
+                json.loads(first.receive_text())
+                json.loads(first.receive_text())
+                json.loads(second.receive_text())
                 operator.send_text(f"/reply {first_id} only first")
                 assert json.loads(first.receive_text())[
                     "message"] == "only first"
