@@ -49,28 +49,20 @@ command -v python3 >/dev/null 2>&1 || {{ echo "python3 is required" >&2; exit 1;
 
 install_dir="$HOME/.local/bin"
 app_dir="$HOME/.peekaboo"
-cat <<'PEEKABOO_BANNER'
-                 _         _                 
- _ __   ___  ___| | ____ _| |__   ___   ___  
-| '_ \ / _ \/ _ \ |/ / _` | '_ \ / _ \ / _ \ 
-| |_) |  __/  __/   < (_| | |_) | (_) | (_) |
-| .__/ \___|\___|_|\_\__,_|_.__/ \___/ \___/ 
-|_|                                          
-PEEKABOO_BANNER
-echo "Peekaboo installer"
-echo "[1/4] Preparing local directories..."
+echo "Installing Peekaboo CLI..."
 mkdir -p "$install_dir"
 mkdir -p "$app_dir/cli"
 
-echo "[2/4] Creating a private Python environment..."
 python3 -m venv "$app_dir/venv"
-echo "[3/4] Installing CLI dependencies..."
+printf "Downloading dependencies [....................]\\r"
 "$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --quiet websockets
+printf "Downloading dependencies [####################]\\n"
 
-echo "[4/4] Downloading the Peekaboo CLI..."
+printf "Downloading Peekaboo CLI [....................]\\r"
 curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/init.py -o "$app_dir/cli/init.py"
 curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/main.py -o "$app_dir/cli/main.py"
 curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/peekaboo.py -o "$app_dir/cli/peekaboo.py"
+printf "Downloading Peekaboo CLI [####################]\\n"
 
 cat > "$install_dir/peekaboo" <<'PEEKABOO_COMMAND'
 #!/bin/sh
