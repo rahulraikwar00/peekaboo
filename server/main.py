@@ -54,15 +54,17 @@ mkdir -p "$install_dir"
 mkdir -p "$app_dir/cli"
 
 python3 -m venv "$app_dir/venv"
-printf "Downloading dependencies [....................]\\r"
-"$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --quiet websockets
-printf "Downloading dependencies [####################]\\n"
+echo "Installing dependencies..."
+"$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --progress-bar on websockets
 
-printf "Downloading Peekaboo CLI [....................]\\r"
-curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/init.py -o "$app_dir/cli/init.py"
-curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/main.py -o "$app_dir/cli/main.py"
-curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/peekaboo.py -o "$app_dir/cli/peekaboo.py"
-printf "Downloading Peekaboo CLI [####################]\\n"
+TOTAL=3
+COUNT=0
+for file in init.py main.py peekaboo.py; do
+    COUNT=$((COUNT + 1))
+    echo "\\rDownloading CLI [$COUNT/$TOTAL] $file..."
+    curl -# https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/"$file" -o "$app_dir/cli/$file"
+done
+echo "CLI files downloaded."
 
 cat > "$install_dir/peekaboo" <<'PEEKABOO_COMMAND'
 #!/bin/sh
