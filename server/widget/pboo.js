@@ -14,20 +14,14 @@ if (!siteId) {
   loadWidget(siteId);
 }
 
-async function loadWidget(siteId) {
+function loadWidget(siteId) {
   try {
-    const [markupResponse, stylesResponse] = await Promise.all([
-      fetch(new URL("widget.html", assetRoot)),
-      fetch(new URL("styles.css", assetRoot)),
-    ]);
-    if (!markupResponse.ok || !stylesResponse.ok) {
-      throw new Error("widget assets returned an error");
+    const markup = typeof WIDGET_MARKUP !== "undefined" ? WIDGET_MARKUP : "";
+    const styles = typeof WIDGET_STYLES !== "undefined" ? WIDGET_STYLES : "";
+    if (!markup || !styles) {
+      throw new Error("widget assets are missing");
     }
-    createWidget(
-      siteId,
-      await markupResponse.text(),
-      await stylesResponse.text(),
-    );
+    createWidget(siteId, markup, styles);
   } catch (error) {
     console.error("Peekaboo: could not load widget assets", error);
   }
@@ -97,6 +91,7 @@ function createWidget(siteId, markup, styles) {
     socket.onclose = () => {
       status.textContent = "Connecting...";
       socket = null;
+      setTimeout(connect, 5000);
     };
   }
 

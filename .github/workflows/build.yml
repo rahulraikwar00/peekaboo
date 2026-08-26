@@ -1,0 +1,56 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Check types
+        run: python -c "import server.main" --verify
+
+  build-docker:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t peekaboo-server .
+
+      - name: Verify Dockerfile
+        run: |
+          docker run --rm peekaboo-server python -c "import server.main; print('Import OK')"
+
+  build-widget:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults.run:
+      working-directory: scripts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build widget bundle
+        run: python build_widget.py
