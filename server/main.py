@@ -53,18 +53,25 @@ echo "Installing Peekaboo CLI..."
 mkdir -p "$install_dir"
 mkdir -p "$app_dir/cli"
 
-python3 -m venv "$app_dir/venv"
-echo "Installing dependencies..."
-"$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --progress-bar on websockets
+if [ ! -x "$app_dir/venv/bin/python" ]; then
+    echo "Creating local environment..."
+    python3 -m venv "$app_dir/venv"
+fi
+if ! "$app_dir/venv/bin/python" -c 'import websockets' >/dev/null 2>&1; then
+    echo "Installing dependencies..."
+    "$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --quiet websockets
+fi
 
-TOTAL=3
-COUNT=0
-for file in init.py main.py peekaboo.py; do
-    COUNT=$((COUNT + 1))
-    echo "\\rDownloading CLI [$COUNT/$TOTAL] $file..."
-    curl -# https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/"$file" -o "$app_dir/cli/$file"
-done
-echo "CLI files downloaded."
+echo "Downloading CLI files..."
+base_url="https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli"
+curl -fsSL "$base_url/init.py" -o "$app_dir/cli/init.py" &
+pid_one=$!
+curl -fsSL "$base_url/main.py" -o "$app_dir/cli/main.py" &
+pid_two=$!
+curl -fsSL "$base_url/peekaboo.py" -o "$app_dir/cli/peekaboo.py" &
+pid_three=$!
+wait "$pid_one" "$pid_two" "$pid_three"
+echo "CLI ready."
 
 cat > "$install_dir/peekaboo" <<'PEEKABOO_COMMAND'
 #!/bin/sh
