@@ -41,7 +41,7 @@ app.mount(
 async def install_script(request: Request):
     server_url = shlex.quote(str(request.base_url).rstrip("/"))
 
-    return f'''#!/bin/sh
+    return fr'''#!/bin/sh
 set -eu
 
 command -v curl >/dev/null 2>&1 || {{ echo "curl is required" >&2; exit 1; }}
@@ -108,6 +108,9 @@ MAX_MESSAGES_PER_WINDOW = 20
 RATE_WINDOW_SECONDS = 10
 MAX_SITE_CREATIONS_PER_WINDOW = 5
 SITE_CREATION_WINDOW_SECONDS = 60
+SITE_ID_BYTES = 24
+OPERATOR_TOKEN_BYTES = 48
+CONVERSATION_ID_BYTES = 24
 allowed_origins = {
     origin.strip()
     for origin in os.getenv("PEEKABOO_ALLOWED_ORIGINS", "").split(",")
@@ -172,6 +175,13 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/sites/{site_id}/status")
+async def site_status(site_id: str):
+    if not site_exists(site_id):
+        return PlainTextResponse("Site not found", status_code=404)
+    return {"operator_online": site_id in operators}
+
+
 @app.post("/sites")
 async def create_site(request: Request):
     client_host = request.client.host if request.client else "unknown"
@@ -195,8 +205,8 @@ async def create_site(request: Request):
             return PlainTextResponse("Invalid website origin", status_code=400)
         allowed_origin = f"{parsed_origin.scheme}://{parsed_origin.netloc}"
 
-    site_id = "site_" + secrets.token_urlsafe(8)
-    operator_token = secrets.token_urlsafe(32)
+    site_id = "site_" + secrets.token_urlsafe(SITE_ID_BYTES)
+    operator_token = secrets.token_urlsafe(OPERATOR_TOKEN_BYTES)
 
     site_record = {
         "site_id": site_id,
@@ -235,7 +245,7 @@ async def visitor_socket(
 
     await websocket.accept()
 
-    conversation_id = secrets.token_urlsafe(16)
+    conversation_id = secrets.token_urlsafe(CONVERSATION_ID_BYTES)
     visitors[site_id].add(websocket)
     visitor_info[websocket] = {
         "conversation_id": conversation_id,

@@ -23,6 +23,13 @@ def create_site(client):
     return response.json()
 
 
+def test_generated_credentials_have_strong_entropy():
+    with TestClient(main.app) as client:
+        site = create_site(client)
+        assert len(site["site_id"]) > 30
+        assert len(site["operator_token"]) > 60
+
+
 def test_invalid_operator_token_is_rejected():
     with TestClient(main.app) as client:
         site = create_site(client)
@@ -32,6 +39,20 @@ def test_invalid_operator_token_is_rejected():
             ):
                 pass
         assert error.value.code == 1008
+
+
+def test_owner_status_reflects_listener_connection():
+    with TestClient(main.app) as client:
+        site = create_site(client)
+        assert client.get(f"/sites/{site['site_id']}/status").json() == {
+            "operator_online": False
+        }
+        with client.websocket_connect(
+            f"/ws/operator/{site['site_id']}?token={site['operator_token']}"
+        ):
+            assert client.get(f"/sites/{site['site_id']}/status").json() == {
+                "operator_online": True
+            }
 
 
 def test_visitor_requires_origin_and_valid_site():

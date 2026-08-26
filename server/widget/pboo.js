@@ -49,6 +49,7 @@ function createWidget(siteId, markup, styles) {
   const input = root.querySelector("input");
   const sendButton = root.querySelector("form button");
   let socket;
+  let statusTimer;
 
   function addMessage(text, kind) {
     const message = document.createElement("div");
@@ -58,13 +59,36 @@ function createWidget(siteId, markup, styles) {
     messages.scrollTop = messages.scrollHeight;
   }
 
-  let reconnectDelay = 1000;
-  let reconnectTimer;
+  async function checkOwnerStatus() {
+    try {
+      const response = await fetch(
+        `${serverUrl}/sites/${encodeURIComponent(siteId)}/status`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error("status request failed");
+      const data = await response.json();
+      if (data.operator_online) {
+        status.textContent = "Owner is online";
+        if (!socket || socket.readyState === WebSocket.CLOSED) connect();
+      } else {
+        status.textContent = "Owner is offline";
+        sendButton.disabled = true;
+        if (socket) {
+          socket.close();
+          socket = null;
+        }
+      }
+    } catch {
+      status.textContent = "Chat unavailable";
+      sendButton.disabled = true;
+    }
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(checkOwnerStatus, 15000);
+  }
 
   function connect() {
     socket = new WebSocket(`${socketUrl}/ws/visitor/${siteId}`);
     socket.onopen = () => {
-      reconnectDelay = 1000;
       status.textContent = "Online now";
       sendButton.disabled = false;
       socket.send(
@@ -87,11 +111,11 @@ function createWidget(siteId, markup, styles) {
       status.textContent = "Connection unavailable";
     };
     socket.onclose = () => {
-      status.textContent = "Offline";
+      status.textContent = "Owner is offline";
       sendButton.disabled = true;
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      socket = null;
+      clearTimeout(statusTimer);
+      statusTimer = setTimeout(checkOwnerStatus, 15000);
     };
   }
 
@@ -112,7 +136,7 @@ function createWidget(siteId, markup, styles) {
   });
 
   sendButton.disabled = true;
-  connect();
+  checkOwnerStatus();
 }
 
 function getVisitorId() {
