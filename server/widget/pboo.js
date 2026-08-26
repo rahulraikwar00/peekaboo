@@ -49,7 +49,6 @@ function createWidget(siteId, markup, styles) {
   const input = root.querySelector("input");
   const sendButton = root.querySelector("form button");
   let socket;
-  let statusTimer;
 
   function addMessage(text, kind) {
     const message = document.createElement("div");
@@ -59,38 +58,10 @@ function createWidget(siteId, markup, styles) {
     messages.scrollTop = messages.scrollHeight;
   }
 
-  async function checkOwnerStatus() {
-    try {
-      const response = await fetch(
-        `${serverUrl}/sites/${encodeURIComponent(siteId)}/status`,
-        { cache: "no-store" },
-      );
-      if (!response.ok) throw new Error("status request failed");
-      const data = await response.json();
-      if (data.operator_online) {
-        status.textContent = "Owner is online";
-        if (!socket || socket.readyState === WebSocket.CLOSED) connect();
-      } else {
-        status.textContent = "Owner is offline";
-        sendButton.disabled = true;
-        if (socket) {
-          socket.close();
-          socket = null;
-        }
-      }
-    } catch {
-      status.textContent = "Chat unavailable";
-      sendButton.disabled = true;
-    }
-    clearTimeout(statusTimer);
-    statusTimer = setTimeout(checkOwnerStatus, 15000);
-  }
-
   function connect() {
     socket = new WebSocket(`${socketUrl}/ws/visitor/${siteId}`);
     socket.onopen = () => {
-      status.textContent = "Online now";
-      sendButton.disabled = false;
+      status.textContent = "Connecting...";
       socket.send(
         JSON.stringify({
           type: "visitor.connected",
@@ -102,7 +73,20 @@ function createWidget(siteId, markup, styles) {
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        addMessage(data.message ?? event.data, "owner");
+        if (data.type === "owner.status") {
+          if (data.online) {
+            status.textContent = "Owner is online";
+            sendButton.disabled = false;
+          } else {
+            status.textContent = "Owner is offline";
+            sendButton.disabled = true;
+          }
+          return;
+        }
+        if (data.type === "owner.message") {
+          addMessage(data.message ?? event.data, "owner");
+          return;
+        }
       } catch {
         addMessage(event.data, "owner");
       }
@@ -111,11 +95,8 @@ function createWidget(siteId, markup, styles) {
       status.textContent = "Connection unavailable";
     };
     socket.onclose = () => {
-      status.textContent = "Owner is offline";
-      sendButton.disabled = true;
+      status.textContent = "Connecting...";
       socket = null;
-      clearTimeout(statusTimer);
-      statusTimer = setTimeout(checkOwnerStatus, 15000);
     };
   }
 
@@ -136,7 +117,7 @@ function createWidget(siteId, markup, styles) {
   });
 
   sendButton.disabled = true;
-  checkOwnerStatus();
+  connect();
 }
 
 function getVisitorId() {

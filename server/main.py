@@ -165,6 +165,22 @@ def save_message(conversation_id, sender, message):
         }).execute()
 
 
+async def broadcast_owner_status(site_id: str, online: bool):
+    status_payload = json.dumps({
+        "type": "owner.status",
+        "online": online,
+    })
+    stale = set()
+    for visitor in visitors.get(site_id, set()):
+        try:
+            await visitor.send_text(status_payload)
+        except Exception:
+            stale.add(visitor)
+    for visitor in stale:
+        visitors[site_id].discard(visitor)
+        visitor_info.pop(visitor, None)
+
+
 @app.get("/")
 async def root():
     page = (SITE_ROOT / "index.html").read_text()
@@ -270,6 +286,8 @@ async def visitor_socket(
             "site_id": site_id,
         }))
 
+        await broadcast_owner_status(site_id, online=True)
+
     try:
         while True:
             message = await websocket.receive_text()
@@ -346,6 +364,8 @@ async def operator_socket(
 
     print(f"Operator connected to {site_id}")
 
+    await broadcast_owner_status(site_id, online=True)
+
     try:
         while True:
             message = await websocket.receive_text()
@@ -383,3 +403,4 @@ async def operator_socket(
     finally:
         if operators.get(site_id) == websocket:
             del operators[site_id]
+            await broadcast_owner_status(site_id, online=False)
