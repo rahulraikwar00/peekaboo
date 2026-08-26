@@ -89,7 +89,7 @@ chmod +x "$install_dir/peekaboo"
 echo "Peekaboo CLI installed at $install_dir/peekaboo"
 case ":$PATH:" in
     *":$install_dir:"*) ;;
-    *) echo "Add it to PATH with: export PATH=\\$HOME/.local/bin:\\$PATH" ;;
+    *) echo "Add it to PATH with: export PATH=\$HOME/.local/bin:\$PATH" ;;
 esac
 '''
 
