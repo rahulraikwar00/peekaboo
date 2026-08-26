@@ -34,6 +34,8 @@ python -m cli.peekaboo setup
 
 The command creates a unique site ID and operator token in `.peekaboo/config.json`, then prints an embed snippet. Add that snippet to the website that should show the chat widget:
 
+During setup, enter the website origin when prompted, for example `https://yourwebsite.com`. This is stored for that site and used to authorize its widget connection.
+
 ```html
 <script
   src="http://localhost:8000/widget/pboo.js"
@@ -98,7 +100,7 @@ The editable widget files live in `server/widget/`:
 
 Website owners still install the widget with only the generated `script` tag.
 
-Configure the CLI for the deployed server:
+Configure the CLI for the deployed server if the installer is not used:
 
 ```bash
 export PEEKABOO_SERVER_URL=https://your-service.onrender.com
