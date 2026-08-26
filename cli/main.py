@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import websockets
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -19,22 +20,40 @@ def load_config():
         return json.load(f)
 
 
-async def receive_messages(websocket):
+async def receive_messages(websocket, state):
     try:
         async for message in websocket:
-            print(f"\n👀 {message}")
+            try:
+                event = json.loads(message)
+            except json.JSONDecodeError:
+                event = {"type": "message", "message": message}
+
+            message_text = re.sub(
+                r"[\x00-\x1f\x7f-\x9f]", "", event.get("message", message))
+            conversation_id = event.get("conversation_id")
+            if conversation_id:
+                state["conversation_id"] = conversation_id
+            prefix = f"[{conversation_id}] " if conversation_id else ""
+            print(f"\nVisitor {prefix}{message_text}")
             print("> ", end="", flush=True)
 
     except websockets.ConnectionClosed:
         print("\n🔴 Server disconnected")
 
 
-async def send_messages(websocket):
+async def send_messages(websocket, state):
     while True:
         message = await asyncio.to_thread(input, "> ")
 
         if message.strip():
-            await websocket.send(message)
+            if message.startswith("/reply "):
+                await websocket.send(message)
+                continue
+            conversation_id = state.get("conversation_id")
+            if not conversation_id:
+                print("No visitor conversation is active yet.")
+                continue
+            await websocket.send(f"/reply {conversation_id} {message}")
 
 
 async def main():
@@ -48,12 +67,13 @@ async def main():
 
     try:
         async with websockets.connect(server_url) as websocket:
+            state = {}
             print(f"Connected to site: {site_id}")
             print("Waiting for visitors...\n")
 
             await asyncio.gather(
-                receive_messages(websocket),
-                send_messages(websocket),
+                receive_messages(websocket, state),
+                send_messages(websocket, state),
             )
 
     except FileNotFoundError:
