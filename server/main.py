@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import time
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,12 +49,25 @@ command -v python3 >/dev/null 2>&1 || {{ echo "python3 is required" >&2; exit 1;
 
 install_dir="$HOME/.local/bin"
 app_dir="$HOME/.peekaboo"
+cat <<'PEEKABOO_BANNER'
+                 _         _                 
+ _ __   ___  ___| | ____ _| |__   ___   ___  
+| '_ \ / _ \/ _ \ |/ / _` | '_ \ / _ \ / _ \ 
+| |_) |  __/  __/   < (_| | |_) | (_) | (_) |
+| .__/ \___|\___|_|\_\__,_|_.__/ \___/ \___/ 
+|_|                                          
+PEEKABOO_BANNER
+echo "Peekaboo installer"
+echo "[1/4] Preparing local directories..."
 mkdir -p "$install_dir"
 mkdir -p "$app_dir/cli"
 
+echo "[2/4] Creating a private Python environment..."
 python3 -m venv "$app_dir/venv"
-"$app_dir/venv/bin/python" -m pip install --quiet websockets
+echo "[3/4] Installing CLI dependencies..."
+"$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --quiet websockets
 
+echo "[4/4] Downloading the Peekaboo CLI..."
 curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/init.py -o "$app_dir/cli/init.py"
 curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/main.py -o "$app_dir/cli/main.py"
 curl -fsSL https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli/peekaboo.py -o "$app_dir/cli/peekaboo.py"
@@ -112,9 +126,21 @@ def hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def valid_origin(websocket):
+def valid_origin(websocket, site_id):
     origin = websocket.headers.get("origin")
-    return bool(origin) and (not allowed_origins or origin in allowed_origins)
+    if not origin:
+        return False
+    if supabase is not None:
+        result = supabase.table("sites").select("allowed_origin").eq(
+            "site_id", site_id
+        ).limit(1).execute()
+        site_origin = result.data[0].get(
+            "allowed_origin") if result.data else None
+        if site_origin:
+            return origin == site_origin
+    elif site_id in sites and sites[site_id].get("allowed_origin"):
+        return origin == sites[site_id]["allowed_origin"]
+    return not allowed_origins or origin in allowed_origins
 
 
 def site_exists(site_id):
@@ -157,12 +183,25 @@ async def create_site(request: Request):
         return PlainTextResponse("Too many site creation requests", status_code=429)
     attempts.append(now)
 
+    try:
+        payload = await request.json()
+    except ValueError:
+        payload = {}
+    allowed_origin = payload.get(
+        "origin") if isinstance(payload, dict) else None
+    if allowed_origin:
+        parsed_origin = urlsplit(allowed_origin)
+        if parsed_origin.scheme not in {"http", "https"} or not parsed_origin.netloc:
+            return PlainTextResponse("Invalid website origin", status_code=400)
+        allowed_origin = f"{parsed_origin.scheme}://{parsed_origin.netloc}"
+
     site_id = "site_" + secrets.token_urlsafe(8)
     operator_token = secrets.token_urlsafe(32)
 
     site_record = {
         "site_id": site_id,
         "operator_token_hash": hash_token(operator_token),
+        "allowed_origin": allowed_origin,
     }
     if supabase is not None:
         supabase.table("sites").insert(site_record).execute()
@@ -185,7 +224,7 @@ async def visitor_socket(
     if not site_exists(site_id):
         await websocket.close(code=1008)
         return
-    if not valid_origin(websocket):
+    if not valid_origin(websocket, site_id):
         await websocket.close(code=1008)
         return
 

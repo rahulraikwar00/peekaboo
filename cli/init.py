@@ -7,13 +7,15 @@ CONFIG_PATH = os.path.join(PROJECT_ROOT, ".peekaboo", "config.json")
 SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "http://localhost:8000")
 
 
-def create_site():
+def create_site(origin):
+    payload = json.dumps({"origin": origin} if origin else {}).encode("utf-8")
     request = urllib.request.Request(
         f"{SERVER_URL}/sites",
         method="POST"
     )
+    request.add_header("Content-Type", "application/json")
 
-    with urllib.request.urlopen(request) as response:
+    with urllib.request.urlopen(request, data=payload) as response:
         return json.loads(response.read())
 
 
@@ -21,8 +23,11 @@ def main():
     print("🐰 Peekaboo")
     print()
     print("Creating your Peekaboo site...")
+    print("Enter the URL where the widget will be installed.")
+    print("Press Enter to allow any browser website for this site.")
+    origin = input("Website URL (optional): ").strip()
 
-    data = create_site()
+    data = create_site(origin)
 
     site_id = data["site_id"]
     operator_token = data["operator_token"]
@@ -40,6 +45,8 @@ def main():
     print()
     print("✓ Site created")
     print(f"✓ Site ID: {site_id}")
+    if origin:
+        print(f"✓ Website origin: {origin}")
     print("✓ Operator token saved")
     print()
     print("Add this to your website:")
