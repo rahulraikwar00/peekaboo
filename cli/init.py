@@ -111,7 +111,7 @@ def main():
     print(colorize(BOLD + BLUE, "\n  ┌─ Add this one line to your website\n  │"))
     print(
         f'  │ <script '
-        f'src="{SERVER_URL}/widget/pboo.js" '
+        f'src="{SERVER_URL}/widget/pboo.bundle.js" '
         f'data-site="{site_id}">'
         f'</script>'
     )
