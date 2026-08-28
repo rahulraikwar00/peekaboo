@@ -146,19 +146,22 @@ else:
         "missing); running in-memory only."
     )
 
-def _public_base_url(request):
-    base_url = os.getenv("PUBLIC_BASE_URL")
-    if base_url:
-        return base_url.rstrip("/")
+def _public_base_url(request, server_url=None):
+    configured = (os.getenv("PUBLIC_BASE_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    server_url = (server_url or "").strip()
+    if server_url:
+        return server_url.rstrip("/")
     if request is not None:
         logger.warning(
-            "PUBLIC_BASE_URL is not set; falling back to request base_url "
-            "(%s). Set PUBLIC_BASE_URL to your public domain for correct "
-            "OAuth redirects.",
+            "Neither PUBLIC_BASE_URL nor a server_url was provided; falling "
+            "back to request base_url (%s). Set PUBLIC_BASE_URL to your public "
+            "domain for correct OAuth redirects.",
             str(request.base_url).rstrip("/"),
         )
         return str(request.base_url).rstrip("/")
-    raise RuntimeError("PUBLIC_BASE_URL is not set")
+    raise RuntimeError("PUBLIC_BASE_URL or server_url is not set")
 
 
 def hash_token(token):
@@ -357,6 +360,8 @@ async def oauth_start(request: Request, provider: str):
         return PlainTextResponse("Unsupported provider", status_code=400)
 
     state = request.query_params.get("state") or secrets.token_urlsafe(24)
+    base_url = _public_base_url(request, request.query_params.get("server_url"))
+    redirect_to = base_url + f"/auth/oauth/callback?state={state}"
     existing = pending_oauth.get(state)
     if existing and "code_verifier" in existing:
         code_verifier = existing["code_verifier"]
@@ -365,11 +370,9 @@ async def oauth_start(request: Request, provider: str):
         pending_oauth[state] = {
             "api_key": None,
             "code_verifier": code_verifier,
+            "redirect_to": redirect_to,
         }
     code_challenge = generate_pkce_challenge(code_verifier)
-
-    base_url = _public_base_url(request)
-    redirect_to = base_url + f"/auth/oauth/callback?state={state}"
 
     from urllib.parse import urlencode
     auth_url = (
@@ -398,9 +401,9 @@ async def oauth_callback(request: Request):
     if "code_verifier" not in entry:
         return PlainTextResponse("Code verifier missing", status_code=400)
     code_verifier = entry["code_verifier"]
-
-    base_url = _public_base_url(request)
-    redirect_to = base_url + f"/auth/oauth/callback?state={state}"
+    redirect_to = entry.get("redirect_to") or (
+        _public_base_url(request) + f"/auth/oauth/callback?state={state}"
+    )
     try:
         session = supabase.auth.exchange_code_for_session({
             "auth_code": code,
