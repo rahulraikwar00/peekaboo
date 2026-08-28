@@ -3,6 +3,7 @@ from collections import deque
 import hashlib
 import hmac
 import json
+import logging
 import os
 import shlex
 import time
@@ -15,7 +16,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import secrets
 from supabase import Client, create_client
@@ -132,6 +133,23 @@ if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SECRET_KEY"):
         os.environ["SUPABASE_SECRET_KEY"],
     )
 
+logger = logging.getLogger("peekaboo")
+
+
+def _public_base_url(request):
+    base_url = os.getenv("PUBLIC_BASE_URL")
+    if base_url:
+        return base_url.rstrip("/")
+    if request is not None:
+        logger.warning(
+            "PUBLIC_BASE_URL is not set; falling back to request base_url "
+            "(%s). Set PUBLIC_BASE_URL to your public domain for correct "
+            "OAuth redirects.",
+            str(request.base_url).rstrip("/"),
+        )
+        return str(request.base_url).rstrip("/")
+    raise RuntimeError("PUBLIC_BASE_URL is not set")
+
 
 def hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -245,6 +263,50 @@ async def site_status(site_id: str):
     return {"operator_online": site_id in operators}
 
 
+@app.get("/oauth/consent", response_class=HTMLResponse)
+async def oauth_consent_page(request: Request):
+    base_url = _public_base_url(request)
+    provider = request.query_params.get("provider", "")
+    state = request.query_params.get("state", "")
+    redirect_to = request.query_params.get("redirect_to", "")
+
+    start_url = f"{base_url}/auth/oauth/start?provider={provider or 'github'}"
+    if state:
+        start_url += f"&state={state}"
+    if redirect_to:
+        start_url += f"&redirect_to={redirect_to}"
+
+    provider_label = {"google": "Google", "github": "GitHub"}.get(provider, "your account")
+    return f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Authorize · Peekaboo</title>
+    <style>
+      body {{ font-family: system-ui, -apple-system, sans-serif; background:#f5f6f8; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }}
+      .card {{ background:#fff; padding:40px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.08); width:360px; text-align:center; }}
+      .logo {{ width:56px; height:56px; margin:0 auto 16px; border-radius:14px; background:#f0f4f8; display:flex; align-items:center; justify-content:center; font-size:28px; }}
+      h1 {{ margin:0 0 8px; font-size:22px; }}
+      p {{ color:#4b5563; margin:0 0 24px; line-height:1.5; }}
+      .btn {{ display:block; padding:12px; border-radius:8px; color:#fff; text-decoration:none; font-weight:600; }}
+      .btn.primary {{ background:#111827; }}
+      .btn span.provider {{ color:#34d399; }}
+      .hint {{ color:#9ca3af; font-size:12px; margin-top:12px; }}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">🐰</div>
+      <h1>Peekaboo</h1>
+      <p>Continue to authorize with <b>{provider_label}</b> to connect your chat account.</p>
+      <a class="btn primary" href="{start_url}">Continue with <span class="provider">{provider_label}</span></a>
+      <div class="hint">This is a secure authorization step. You'll return here when done.</div>
+    </div>
+  </body>
+</html>"""
+
+
 @app.get("/auth/login", response_class=HTMLResponse)
 async def auth_login_page():
     base_url = os.getenv("PUBLIC_BASE_URL", "")
@@ -282,15 +344,20 @@ async def oauth_start(request: Request, provider: str):
         return PlainTextResponse("Server not configured", status_code=500)
     if provider not in {"google", "github"}:
         return PlainTextResponse("Unsupported provider", status_code=400)
-    state = secrets.token_urlsafe(24)
-    code_verifier = generate_pkce_verifier()
+
+    state = request.query_params.get("state") or secrets.token_urlsafe(24)
+    existing = pending_oauth.get(state)
+    if existing and "code_verifier" in existing:
+        code_verifier = existing["code_verifier"]
+    else:
+        code_verifier = generate_pkce_verifier()
+        pending_oauth[state] = {
+            "api_key": None,
+            "code_verifier": code_verifier,
+        }
     code_challenge = generate_pkce_challenge(code_verifier)
-    pending_oauth[state] = {
-        "api_key": None,
-        "code_verifier": code_verifier,
-    }
-    base_url = os.getenv("PUBLIC_BASE_URL") or str(
-        request.base_url).rstrip("/")
+
+    base_url = _public_base_url(request)
     redirect_to = base_url + f"/auth/oauth/callback?state={state}"
 
     from urllib.parse import urlencode
@@ -321,8 +388,7 @@ async def oauth_callback(request: Request):
         return PlainTextResponse("Code verifier missing", status_code=400)
     code_verifier = entry["code_verifier"]
 
-    base_url = os.getenv("PUBLIC_BASE_URL") or str(
-        request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     redirect_to = base_url + f"/auth/oauth/callback?state={state}"
     try:
         session = supabase.auth.exchange_code_for_session({
@@ -332,14 +398,53 @@ async def oauth_callback(request: Request):
         })
         owner_id = session.user.id
     except Exception as exc:
+        logger.exception("OAuth token exchange failed")
         return PlainTextResponse(f"OAuth callback error: {exc}", status_code=400)
 
-    api_key = mint_owner_api_key(owner_id)
+    try:
+        api_key = mint_owner_api_key(owner_id)
+    except Exception as exc:
+        logger.exception("Failed to mint owner API key for owner_id=%r", owner_id)
+        return PlainTextResponse(
+            f"Login failed: could not save account ({exc})", status_code=500)
 
     if state and state in pending_oauth:
         pending_oauth[state]["api_key"] = api_key
 
-    return HTMLResponse("<h3>Login successful. You can close this tab and return to your terminal.</h3>")
+    return RedirectResponse(
+        url=f"/auth/success",
+        status_code=303,
+    )
+
+
+@app.get("/auth/success", response_class=HTMLResponse)
+async def auth_success_page():
+    return """<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Logged in · Peekaboo</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; background:#f0f4f8; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+      .card { background:#fff; padding:48px 40px; border-radius:16px; box-shadow:0 12px 32px rgba(0,0,0,.08); width:360px; text-align:center; }
+      .check { width:64px; height:64px; margin:0 auto 20px; border-radius:50%; background:#d1fae5; color:#059669; display:flex; align-items:center; justify-content:center; font-size:32px; }
+      h1 { margin:0 0 8px; font-size:22px; color:#111827; }
+      p { color:#4b5563; font-size:15px; line-height:1.5; margin:0 0 8px; }
+      .cli { margin-top:20px; padding:12px 16px; background:#111827; color:#34d399; border-radius:8px; font-family:ui-monospace,monospace; font-size:13px; }
+      .hint { color:#9ca3af; font-size:12px; margin-top:16px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="check">&#10003;</div>
+      <h1>You're logged in!</h1>
+      <p>Your login was successful.</p>
+      <div class="cli">Go back to your terminal — Peekaboo is ready 🐰</div>
+      <div class="hint">You can close this tab now.</div>
+    </div>
+  </body>
+</html>"""
 
 
 @app.get("/auth/cli/status")

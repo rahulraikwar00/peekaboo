@@ -136,6 +136,10 @@ peekaboo listen
 
 To allow Google/GitHub sign-in, configure the providers in the Supabase dashboard (Auth → Providers) and add the server's `/auth/oauth/callback` URL as an authorized redirect. Set `PUBLIC_BASE_URL` on the server so the callback URLs use your public domain. The `SUPABASE_URL` and `SUPABASE_SECRET_KEY` env vars connect the server to Supabase; without them the server runs in an in-memory mode suitable for local testing only.
 
+The CLI defaults `PEEKABOO_SERVER_URL` (and the listen WebSocket URL) to the deployed server at `https://peekaboo-477i.onrender.com`. Override it with `PEEKABOO_SERVER_URL` when running against a local instance.
+
+The sign-in flow routes through an authorization UI served at `/oauth/consent` (the "Authorization path" you may need to set in the Supabase provider config) which forwards the user to the selected provider. After a successful login the browser lands on a success page at `/auth/success`, telling the user to return to their terminal.
+
 ### Which HTML is needed?
 
 Website owners do not need to copy `server/widget/index.html`. That file is only a preview page. They only add the script tag printed by `peekaboo setup` to their own HTML:
