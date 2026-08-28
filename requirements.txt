@@ -4,3 +4,4 @@ websockets
 pytest
 httpx2
 supabase
+python-dotenv
