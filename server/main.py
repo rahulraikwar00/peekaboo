@@ -3,6 +3,7 @@ from collections import deque
 import hashlib
 import hmac
 import json
+import logging
 import os
 import shlex
 import time
@@ -132,6 +133,23 @@ if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SECRET_KEY"):
         os.environ["SUPABASE_SECRET_KEY"],
     )
 
+logger = logging.getLogger("peekaboo")
+
+
+def _public_base_url(request):
+    base_url = os.getenv("PUBLIC_BASE_URL")
+    if base_url:
+        return base_url.rstrip("/")
+    if request is not None:
+        logger.warning(
+            "PUBLIC_BASE_URL is not set; falling back to request base_url "
+            "(%s). Set PUBLIC_BASE_URL to your public domain for correct "
+            "OAuth redirects.",
+            str(request.base_url).rstrip("/"),
+        )
+        return str(request.base_url).rstrip("/")
+    raise RuntimeError("PUBLIC_BASE_URL is not set")
+
 
 def hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -247,7 +265,7 @@ async def site_status(site_id: str):
 
 @app.get("/oauth/consent", response_class=HTMLResponse)
 async def oauth_consent_page(request: Request):
-    base_url = os.getenv("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     provider = request.query_params.get("provider", "")
     state = request.query_params.get("state", "")
     redirect_to = request.query_params.get("redirect_to", "")
@@ -339,8 +357,7 @@ async def oauth_start(request: Request, provider: str):
         }
     code_challenge = generate_pkce_challenge(code_verifier)
 
-    base_url = os.getenv("PUBLIC_BASE_URL") or str(
-        request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     redirect_to = base_url + f"/auth/oauth/callback?state={state}"
 
     from urllib.parse import urlencode
@@ -371,8 +388,7 @@ async def oauth_callback(request: Request):
         return PlainTextResponse("Code verifier missing", status_code=400)
     code_verifier = entry["code_verifier"]
 
-    base_url = os.getenv("PUBLIC_BASE_URL") or str(
-        request.base_url).rstrip("/")
+    base_url = _public_base_url(request)
     redirect_to = base_url + f"/auth/oauth/callback?state={state}"
     try:
         session = supabase.auth.exchange_code_for_session({
@@ -382,9 +398,15 @@ async def oauth_callback(request: Request):
         })
         owner_id = session.user.id
     except Exception as exc:
+        logger.exception("OAuth token exchange failed")
         return PlainTextResponse(f"OAuth callback error: {exc}", status_code=400)
 
-    api_key = mint_owner_api_key(owner_id)
+    try:
+        api_key = mint_owner_api_key(owner_id)
+    except Exception as exc:
+        logger.exception("Failed to mint owner API key for owner_id=%r", owner_id)
+        return PlainTextResponse(
+            f"Login failed: could not save account ({exc})", status_code=500)
 
     if state and state in pending_oauth:
         pending_oauth[state]["api_key"] = api_key

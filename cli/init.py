@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, ".peekaboo", "config.json")
-SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "http://localhost:8000")
+SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "https://peekaboo-477i.onrender.com")
 
 
 def load_config():
@@ -159,7 +159,32 @@ def poll_oauth_callback(state, timeout=120):
     raise RuntimeError("Timed out waiting for browser login.")
 
 
+def _has_display():
+    if os.name == "nt" or sys.platform == "darwin":
+        return True
+    if os.environ.get("BROWSER"):
+        return True
+    if not (
+        os.environ.get("DISPLAY")
+        or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        return False
+    known = (
+        "google-chrome", "chromium", "chromium-browser", "firefox",
+        "iceweasel", "mozilla", "epiphany", "konqueror", "brave-browser",
+        "microsoft-edge", "opera", "links", "links2", "elinks", "lynx",
+        "w3m",
+    )
+    for binary in known:
+        for path_dir in os.getenv("PATH", "").split(os.pathsep):
+            if path_dir and os.path.isfile(os.path.join(path_dir, binary)):
+                return True
+    return False
+
+
 def open_browser(url):
+    if not _has_display():
+        return False
     try:
         with open(os.devnull, "w") as devnull:
             with redirect_stderr(devnull), redirect_stdout(devnull):

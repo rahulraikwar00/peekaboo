@@ -8,7 +8,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, ".peekaboo", "config.json")
 LEGACY_CONFIG_PATH = os.path.join(
     os.path.dirname(__file__), ".peekaboo", "config.json")
-SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "ws://localhost:8000")
+SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "wss://peekaboo-477i.onrender.com")
 
 
 def load_config():

@@ -8,7 +8,7 @@ from cli.init import ensure_api_key, load_config, save_config
 from cli.init import main as setup
 from cli.main import main as listen
 
-SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "http://localhost:8000")
+SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "https://peekaboo-477i.onrender.com")
 
 
 def logout():
