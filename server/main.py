@@ -126,15 +126,25 @@ SITE_ID_BYTES = 24
 OPERATOR_TOKEN_BYTES = 48
 CONVERSATION_ID_BYTES = 24
 site_creation_attempts = {}
+logger = logging.getLogger("peekaboo")
 supabase: Client | None = None
 if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SECRET_KEY"):
     supabase = create_client(
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SECRET_KEY"],
     )
-
-logger = logging.getLogger("peekaboo")
-
+    secret = os.environ["SUPABASE_SECRET_KEY"]
+    prefix = secret.split(".")[0]
+    logger.info(
+        "Supabase persistence enabled. url_host=%s key_prefix=%s",
+        urlsplit(os.environ["SUPABASE_URL"]).netloc,
+        prefix[:20],
+    )
+else:
+    logger.warning(
+        "Supabase persistence DISABLED (SUPABASE_URL or SUPABASE_SECRET_KEY "
+        "missing); running in-memory only."
+    )
 
 def _public_base_url(request):
     base_url = os.getenv("PUBLIC_BASE_URL")
@@ -323,8 +333,8 @@ async def auth_login_page():
       p {{ color:#666; margin:0 0 24px; }}
       a.btn {{ display:block; margin:10px 0; padding:12px; border-radius:8px; color:#fff; text-decoration:none; font-weight:600; }}
       a.google {{ background:#4285F4; }}
-      a.github {{ background:#24292F; }}
-      a.browser {{ background:#fff; color:#333; border:1px solid #ddd; }}
+      a.github {{ background:#fff; color:#333; border:1px solid #ddd; }}
+      .alt {{ margin-top:8px; font-size:12px; color:#999; }}
     </style>
   </head>
   <body>
@@ -332,6 +342,7 @@ async def auth_login_page():
       <h1>Peekaboo</h1>
       <p>Log in to continue in your terminal.</p>
       <a class="btn google" href="{base_url}/auth/oauth/start?provider=google">Continue with Google</a>
+      <div class="alt">Prefer GitHub?</div>
       <a class="btn github" href="{base_url}/auth/oauth/start?provider=github">Continue with GitHub</a>
     </div>
   </body>
