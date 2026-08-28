@@ -15,11 +15,25 @@ def reset_state():
     main.operators.clear()
     main.visitor_info.clear()
     main.site_creation_attempts.clear()
+    main.owner_api_keys.clear()
+    main.pending_oauth.clear()
 
 
-def create_site(client):
-    response = client.post("/sites")
-    assert response.status_code == 200
+def make_owner():
+    api_key = main.mint_owner_api_key("owner-test")
+    return {"owner_id": "owner-test", "api_key": api_key}
+
+
+def create_site(client, api_key=None, origin=None):
+    if api_key is None:
+        api_key = make_owner()["api_key"]
+    payload = json.dumps({"origin": origin} if origin else {}).encode()
+    response = client.post(
+        "/sites",
+        content=payload,
+        headers={"X-API-Key": api_key, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 200, response.text
     return response.json()
 
 
@@ -62,7 +76,7 @@ def test_visitor_requires_origin_and_valid_site():
                 pass
         assert error.value.code == 1008
 
-        site = create_site(client)
+        site = create_site(client, origin="https://example.test")
         with pytest.raises(WebSocketDisconnect) as error:
             with client.websocket_connect(
                 f"/ws/visitor/{site['site_id']}",
@@ -70,10 +84,28 @@ def test_visitor_requires_origin_and_valid_site():
                 websocket.receive_text()
         assert error.value.code == 1008
 
+        with pytest.raises(WebSocketDisconnect) as error:
+            with client.websocket_connect(
+                f"/ws/visitor/{site['site_id']}",
+                headers={"origin": "https://evil.example"},
+            ) as websocket:
+                websocket.receive_text()
+        assert error.value.code == 1008
+
+
+def test_visitor_from_allowed_origin_is_accepted():
+    with TestClient(main.app) as client:
+        site = create_site(client, origin="https://example.test")
+        with client.websocket_connect(
+            f"/ws/visitor/{site['site_id']}",
+            headers={"origin": "https://example.test"},
+        ):
+            pass
+
 
 def test_visitor_message_is_scoped_and_size_limited():
     with TestClient(main.app) as client:
-        site = create_site(client)
+        site = create_site(client, origin="https://example.test")
         with client.websocket_connect(
             f"/ws/operator/{site['site_id']}?token={site['operator_token']}",
         ) as operator:
@@ -101,7 +133,7 @@ def test_visitor_message_is_scoped_and_size_limited():
 
 def test_operator_reply_does_not_cross_conversations():
     with TestClient(main.app) as client:
-        site = create_site(client)
+        site = create_site(client, origin="https://example.test")
         with client.websocket_connect(
             f"/ws/operator/{site['site_id']}?token={site['operator_token']}",
         ) as operator:
@@ -131,3 +163,41 @@ def test_operator_reply_does_not_cross_conversations():
                     pending.result(timeout=0.1)
                 executor.shutdown(wait=False, cancel_futures=True)
                 assert first_id != second_id
+
+
+def test_create_site_requires_valid_api_key():
+    with TestClient(main.app) as client:
+        response = client.post("/sites")
+        assert response.status_code == 401
+
+        response = client.post(
+            "/sites",
+            headers={"X-API-Key": "forged-key"},
+        )
+        assert response.status_code == 401
+
+
+def test_revoked_api_key_is_rejected():
+    with TestClient(main.app) as client:
+        owner = make_owner()
+        response = client.post(
+            "/auth/logout",
+            headers={"X-API-Key": owner["api_key"]},
+        )
+        assert response.status_code == 200
+
+        response = client.post(
+            "/sites",
+            headers={"X-API-Key": owner["api_key"]},
+        )
+        assert response.status_code == 401
+
+
+def test_sites_are_scoped_to_owner():
+    with TestClient(main.app) as client:
+        owner_a = make_owner()
+        owner_b = make_owner()
+        site = create_site(client, api_key=owner_a["api_key"])
+
+        stored_owner = main.sites[site["site_id"]]["owner_id"]
+        assert stored_owner == owner_a["owner_id"]

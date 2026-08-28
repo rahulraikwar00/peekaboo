@@ -32,7 +32,7 @@ In a second terminal, create a site:
 python -m cli.peekaboo setup
 ```
 
-The command creates a unique site ID and operator token in `.peekaboo/config.json`, then prints an embed snippet. Add that snippet to the website that should show the chat widget:
+The command first logs you in via OAuth (Google/GitHub) the first time, saves a per-owner API key in `.peekaboo/config.json`, then creates a site. It prints an embed snippet and stores the site ID and operator token. Add that snippet to the website that should show the chat widget:
 
 During setup, enter the website origin when prompted, for example `https://yourwebsite.com`. This is stored for that site and used to authorize its widget connection.
 
@@ -80,6 +80,24 @@ After deployment, use the Render URL in the website embed:
 ></script>
 ```
 
+## Authentication & ownership
+
+Peekaboo is multi-owner. Anyone can sign in with Google or GitHub and run their own separate chat site. Each owner:
+
+- Has their own sites (`sites.owner_id`).
+- Creates sites only with their own API key (minted after OAuth login and stored hashed in `owner_api_keys`).
+- Runs `listen` using the per-site `operator_token` generated at setup.
+
+Per-owner isolation is enforced **server-side**: every site lookup is scoped by the owner id from the API key. Visitors remain anonymous (no account); they can only message an owner when their browser `Origin` matches the site's stored `allowed_origin`.
+
+CLI commands:
+
+```bash
+peekaboo setup    # OAuth login (one time), then create a site
+peekaboo listen   # receive visitor messages as the owner
+peekaboo logout   # revoke the owner API key
+```
+
 ## Secure chat controls
 
 The owner CLI displays a conversation ID for each visitor. Reply to one visitor with:
@@ -114,7 +132,9 @@ export PEEKABOO_SERVER_URL=wss://your-service.onrender.com
 peekaboo listen
 ```
 
-The current site store is in memory, so site credentials are lost whenever the Render service restarts. Add a database before production use.
+### OAuth providers
+
+To allow Google/GitHub sign-in, configure the providers in the Supabase dashboard (Auth → Providers) and add the server's `/auth/oauth/callback` URL as an authorized redirect. Set `PUBLIC_BASE_URL` on the server so the callback URLs use your public domain. The `SUPABASE_URL` and `SUPABASE_SECRET_KEY` env vars connect the server to Supabase; without them the server runs in an in-memory mode suitable for local testing only.
 
 ### Which HTML is needed?
 

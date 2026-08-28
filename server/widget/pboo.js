@@ -48,14 +48,14 @@ function createWidget(siteId, markup, styles) {
     const message = document.createElement("div");
     message.className = `message ${kind}`;
     message.textContent = text;
-    
+
     if (includeTimestamp && kind !== "system" && kind !== "typing") {
       const timestamp = document.createElement("div");
       timestamp.className = "timestamp";
       timestamp.textContent = formatTime(new Date());
       message.appendChild(timestamp);
     }
-    
+
     messages.appendChild(message);
     messages.scrollTop = messages.scrollHeight;
   }
@@ -72,7 +72,8 @@ function createWidget(siteId, markup, styles) {
 
     const typing = document.createElement("div");
     typing.className = "message typing";
-    typing.innerHTML = "<span class='typing-dot'></span><span class='typing-dot'></span><span class='typing-dot'></span>";
+    typing.innerHTML =
+      "<span class='typing-dot'></span><span class='typing-dot'></span><span class='typing-dot'></span>";
     messages.appendChild(typing);
     messages.scrollTop = messages.scrollHeight;
     return typing;
@@ -86,7 +87,7 @@ function createWidget(siteId, markup, styles) {
   function updateStatus(text, type = "default") {
     const statusText = status.querySelector(".status-text");
     if (statusText) statusText.textContent = text;
-    
+
     status.className = "status";
     if (type === "online") status.classList.add("online");
     else if (type === "typing") status.classList.add("typing");

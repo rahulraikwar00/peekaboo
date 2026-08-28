@@ -6,7 +6,12 @@ import json
 import os
 import shlex
 import time
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,12 +19,13 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 import secrets
 from supabase import Client, create_client
+from supabase_auth.helpers import generate_pkce_verifier, generate_pkce_challenge
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -96,6 +102,9 @@ esac
 # site_id -> site information
 sites = {}
 
+# key_hash -> {"owner_id": str, "revoked": bool} for in-memory (non-supabase) mode
+owner_api_keys = {}
+
 # site_id -> connected visitors
 visitors = {}
 
@@ -103,20 +112,18 @@ visitors = {}
 operators = {}
 visitor_info = {}
 
+# state -> {"api_key": str} for pending OAuth logins
+pending_oauth = {}
+
 MAX_MESSAGE_BYTES = 4096
 MAX_VISITORS_PER_SITE = 1000
 MAX_MESSAGES_PER_WINDOW = 20
 RATE_WINDOW_SECONDS = 10
-MAX_SITE_CREATIONS_PER_WINDOW = 5
-SITE_CREATION_WINDOW_SECONDS = 60
+MAX_SITE_CREATIONS_PER_WINDOW = 2
+SITE_CREATION_WINDOW_SECONDS = 3600
 SITE_ID_BYTES = 24
 OPERATOR_TOKEN_BYTES = 48
 CONVERSATION_ID_BYTES = 24
-allowed_origins = {
-    origin.strip()
-    for origin in os.getenv("PEEKABOO_ALLOWED_ORIGINS", "").split(",")
-    if origin.strip()
-}
 site_creation_attempts = {}
 supabase: Client | None = None
 if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SECRET_KEY"):
@@ -130,6 +137,46 @@ def hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def mint_owner_api_key(owner_id):
+    api_key = secrets.token_urlsafe(OPERATOR_TOKEN_BYTES)
+    key_hash = hash_token(api_key)
+    if supabase is not None:
+        supabase.table("owner_api_keys").insert({
+            "owner_id": owner_id,
+            "key_hash": key_hash,
+        }).execute()
+    else:
+        owner_api_keys[key_hash] = {"owner_id": owner_id, "revoked": False}
+    return api_key
+
+
+def get_owner_id_from_api_key(api_key):
+    if not api_key:
+        return None
+    key_hash = hash_token(api_key)
+    if supabase is not None:
+        result = supabase.table("owner_api_keys").select(
+            "owner_id"
+        ).eq("key_hash", key_hash).eq(
+            "revoked_at", None
+        ).limit(1).execute()
+        if result.data:
+            return result.data[0]["owner_id"]
+        return None
+    record = owner_api_keys.get(key_hash)
+    if record and not record.get("revoked"):
+        return record["owner_id"]
+    return None
+
+
+def require_owner(request):
+    api_key = request.headers.get("X-API-Key")
+    owner_id = get_owner_id_from_api_key(api_key) if api_key else None
+    if not owner_id:
+        return None
+    return owner_id
+
+
 def valid_origin(websocket, site_id):
     origin = websocket.headers.get("origin")
     if not origin:
@@ -140,11 +187,10 @@ def valid_origin(websocket, site_id):
         ).limit(1).execute()
         site_origin = result.data[0].get(
             "allowed_origin") if result.data else None
-        if site_origin:
-            return origin == site_origin
-    elif site_id in sites and sites[site_id].get("allowed_origin"):
-        return origin == sites[site_id]["allowed_origin"]
-    return not allowed_origins or origin in allowed_origins
+        return bool(site_origin and origin == site_origin)
+    if site_id not in sites or not sites[site_id].get("allowed_origin"):
+        return False
+    return origin == sites[site_id]["allowed_origin"]
 
 
 def site_exists(site_id):
@@ -199,8 +245,141 @@ async def site_status(site_id: str):
     return {"operator_online": site_id in operators}
 
 
+@app.get("/auth/login", response_class=HTMLResponse)
+async def auth_login_page():
+    base_url = os.getenv("PUBLIC_BASE_URL", "")
+    return f"""<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Log in to Peekaboo</title>
+    <style>
+      body {{ font-family: system-ui, -apple-system, sans-serif; background:#f5f6f8; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }}
+      .card {{ background:#fff; padding:40px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.08); width:320px; text-align:center; }}
+      h1 {{ margin:0 0 6px; font-size:24px; }}
+      p {{ color:#666; margin:0 0 24px; }}
+      a.btn {{ display:block; margin:10px 0; padding:12px; border-radius:8px; color:#fff; text-decoration:none; font-weight:600; }}
+      a.google {{ background:#4285F4; }}
+      a.github {{ background:#24292F; }}
+      a.browser {{ background:#fff; color:#333; border:1px solid #ddd; }}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Peekaboo</h1>
+      <p>Log in to continue in your terminal.</p>
+      <a class="btn google" href="{base_url}/auth/oauth/start?provider=google">Continue with Google</a>
+      <a class="btn github" href="{base_url}/auth/oauth/start?provider=github">Continue with GitHub</a>
+    </div>
+  </body>
+</html>"""
+
+
+@app.get("/auth/oauth/start")
+async def oauth_start(request: Request, provider: str):
+    if supabase is None:
+        return PlainTextResponse("Server not configured", status_code=500)
+    if provider not in {"google", "github"}:
+        return PlainTextResponse("Unsupported provider", status_code=400)
+    state = secrets.token_urlsafe(24)
+    code_verifier = generate_pkce_verifier()
+    code_challenge = generate_pkce_challenge(code_verifier)
+    pending_oauth[state] = {
+        "api_key": None,
+        "code_verifier": code_verifier,
+    }
+    base_url = os.getenv("PUBLIC_BASE_URL") or str(
+        request.base_url).rstrip("/")
+    redirect_to = base_url + f"/auth/oauth/callback?state={state}"
+
+    from urllib.parse import urlencode
+    auth_url = (
+        f"{os.environ['SUPABASE_URL'].rstrip('/')}/auth/v1/authorize"
+        + "?" + urlencode({
+            "provider": provider,
+            "redirect_to": redirect_to,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "s256",
+        })
+    )
+    return {"url": auth_url, "state": state}
+
+
+@app.get("/auth/oauth/callback")
+async def oauth_callback(request: Request):
+    if supabase is None:
+        return PlainTextResponse("Server not configured", status_code=500)
+    state = request.query_params.get("state")
+    code = request.query_params.get("code")
+    if not code:
+        return PlainTextResponse("Missing authorization code", status_code=400)
+    entry = pending_oauth.get(state or "")
+    if not entry:
+        return PlainTextResponse("Unknown or expired login attempt", status_code=400)
+    if "code_verifier" not in entry:
+        return PlainTextResponse("Code verifier missing", status_code=400)
+    code_verifier = entry["code_verifier"]
+
+    base_url = os.getenv("PUBLIC_BASE_URL") or str(
+        request.base_url).rstrip("/")
+    redirect_to = base_url + f"/auth/oauth/callback?state={state}"
+    try:
+        session = supabase.auth.exchange_code_for_session({
+            "auth_code": code,
+            "code_verifier": code_verifier,
+            "redirect_to": redirect_to,
+        })
+        owner_id = session.user.id
+    except Exception as exc:
+        return PlainTextResponse(f"OAuth callback error: {exc}", status_code=400)
+
+    api_key = mint_owner_api_key(owner_id)
+
+    if state and state in pending_oauth:
+        pending_oauth[state]["api_key"] = api_key
+
+    return HTMLResponse("<h3>Login successful. You can close this tab and return to your terminal.</h3>")
+
+
+@app.get("/auth/cli/status")
+async def auth_cli_status(request: Request):
+    state = request.query_params.get("state")
+    if not state or state not in pending_oauth:
+        return PlainTextResponse("Invalid state", status_code=404)
+    api_key = pending_oauth[state].get("api_key")
+    if api_key:
+        del pending_oauth[state]
+        return {"owner_api_key": api_key}
+    return {"pending": True}
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request):
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        return PlainTextResponse("Missing API key", status_code=401)
+    key_hash = hash_token(api_key)
+    if supabase is not None:
+        result = supabase.table("owner_api_keys").update({
+            "revoked_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("key_hash", key_hash).eq("revoked_at", None).execute()
+        if not result.data:
+            return PlainTextResponse("API key not found", status_code=404)
+    else:
+        record = owner_api_keys.get(key_hash)
+        if not record:
+            return PlainTextResponse("API key not found", status_code=404)
+        record["revoked"] = True
+    return {"status": "revoked"}
+
+
 @app.post("/sites")
 async def create_site(request: Request):
+    owner_id = require_owner(request)
+    if not owner_id:
+        return PlainTextResponse("Invalid API key", status_code=401)
+
     client_host = request.client.host if request.client else "unknown"
     now = time.monotonic()
     attempts = site_creation_attempts.setdefault(client_host, deque())
@@ -227,6 +406,7 @@ async def create_site(request: Request):
 
     site_record = {
         "site_id": site_id,
+        "owner_id": owner_id,
         "operator_token_hash": hash_token(operator_token),
         "allowed_origin": allowed_origin,
     }
