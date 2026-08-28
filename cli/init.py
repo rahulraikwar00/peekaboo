@@ -1,10 +1,8 @@
 import json
 import os
 import sys
-import termios
 import threading
 import time
-import tty
 import webbrowser
 import urllib.request
 from contextlib import redirect_stderr, redirect_stdout
@@ -42,57 +40,6 @@ def colorize(code, text):
     if sys.stdout.isatty():
         return f"{code}{text}{RESET}"
     return text
-
-
-def _read_key():
-    ch = sys.stdin.read(1)
-    if ch == "\x1b":
-        _ = sys.stdin.read(2)
-        return {"[A": "up", "[B": "down"}.get(_)
-    if ch in ("\r", "\n"):
-        return "enter"
-    return ch
-
-
-def select_option(prompt, options):
-    """Interactive arrow-key menu. Falls back to a numbered prompt when not a TTY."""
-    if not sys.stdin.isatty():
-        print(colorize(BLUE, f"  └─ {prompt}"))
-        for i, opt in enumerate(options, 1):
-            print(colorize(DIM, f"     {i}) {opt[0]}"))
-        while True:
-            choice = input("  └─ Select [1]: ").strip() or "1"
-            if choice.isdigit() and 1 <= int(choice) <= len(options):
-                return options[int(choice) - 1][1]
-            print(colorize(YELLOW, "     Invalid choice. Try again."))
-
-    index = 0
-    old_attrs = termios.tcgetattr(sys.stdin)
-    try:
-        tty.setcbreak(sys.stdin.fileno())
-        print(colorize(BOLD + BLUE, f"  ┌─ {prompt}"))
-        while True:
-            for i, (label, _) in enumerate(options):
-                if i == index:
-                    line = f"  │ {colorize(BOLD + CYAN, '▶ ' + label)}"
-                else:
-                    line = f"  │   {colorize(DIM, label)}"
-                sys.stdout.write("\x1b[K" + line + "\n")
-            sys.stdout.write("\x1b[" + str(len(options)) + "A")
-            sys.stdout.flush()
-
-            key = _read_key()
-            if key == "up":
-                index = (index - 1) % len(options)
-            elif key == "down":
-                index = (index + 1) % len(options)
-            elif key == "enter":
-                print("\n", end="")
-                break
-    finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_attrs)
-
-    return options[index][1]
 
 
 def create_site_with_spinner(origin, api_key):
@@ -136,7 +83,7 @@ def create_site(origin, api_key):
         return json.loads(response.read())
 
 
-def get_oauth_url(provider="github"):
+def get_oauth_url(provider="google"):
     with urllib.request.urlopen(
         f"{SERVER_URL}/auth/oauth/start?provider={provider}"
     ) as response:
@@ -199,16 +146,9 @@ def ensure_api_key(config):
         return api_key
 
     print(colorize(CYAN, "     Log in to your Peekaboo account to continue.\n"))
-    provider = select_option(
-        "How would you like to log in?",
-        [
-            ("GitHub", "github"),
-            ("Google", "google"),
-        ],
-    )
-    oauth = get_oauth_url(provider)
+    oauth = get_oauth_url("google")
     url, state = oauth["url"], oauth["state"]
-    print(colorize(BLUE, f"  ┌─ {provider.title()} — open this URL in your browser to log in:\n  │"))
+    print(colorize(BLUE, "  ┌─ Google — open this URL in your browser to log in:\n  │"))
     print(colorize(BLUE, f"  │ {url}"))
     print(colorize(BLUE, "  │"))
     print(colorize(DIM, "  │ If the browser didn't open, copy and paste the URL manually."))

@@ -44,3 +44,14 @@ alter table public.sites enable row level security;
 alter table public.conversations enable row level security;
 alter table public.messages enable row level security;
 alter table public.owner_api_keys enable row level security;
+
+-- The server connects with the service role key (SUPABASE_SECRET_KEY /
+-- sb_secret_...), which bypasses row level security, so the tables above
+-- deliberately define no policies for the anon role: a public client must not
+-- be able to read or write site/owner data directly. All access flows through
+-- the server, which authenticates owners by API key.
+
+-- Remove the previously-created broad INSERT policy ("Allow key inserts") that
+-- lets anyone (anon) mint owner API keys. It is a security hole and not needed:
+-- the server inserts through the service role, which bypasses RLS regardless.
+drop policy if exists "Allow key inserts" on public.owner_api_keys;
