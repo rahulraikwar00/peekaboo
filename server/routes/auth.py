@@ -103,10 +103,7 @@ async def oauth_callback(request: Request):
         public_base_url(request) + f"/auth/oauth/callback?state={state}"
     )
     try:
-        # Exchange the PKCE code on an isolated client. Using the shared
-        # service-role client here would store the owner's session on it, which
-        # swaps the Authorization header to the user JWT and makes every later
-        # query run under RLS instead of bypassing it (service role).
+        # 1. Exchange code using an isolated auth-only client
         auth_client = create_client(
             os.environ["SUPABASE_URL"],
             os.environ["SUPABASE_SECRET_KEY"],
@@ -114,7 +111,6 @@ async def oauth_callback(request: Request):
         session = auth_client.auth.exchange_code_for_session({
             "auth_code": code,
             "code_verifier": code_verifier,
-            "redirect_to": redirect_to,
         })
         owner_id = session.user.id
     except Exception as exc:
@@ -122,9 +118,16 @@ async def oauth_callback(request: Request):
         return PlainTextResponse(f"OAuth callback error: {exc}", status_code=400)
 
     try:
-        api_key = mint_owner_api_key(owner_id)
+        # 2. Mint the API key using a separate dedicated service client
+        # that has never touched user sessions or .auth.exchange_code_for_session()
+        db_client = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SECRET_KEY"],
+        )
+        api_key = mint_owner_api_key(owner_id, db_client=db_client)
     except Exception as exc:
-        logger.exception("Failed to mint owner API key for owner_id=%r", owner_id)
+        logger.exception(
+            "Failed to mint owner API key for owner_id=%r", owner_id)
         return PlainTextResponse(
             f"Login failed: could not save account ({exc})", status_code=500
         )
