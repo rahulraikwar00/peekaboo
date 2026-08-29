@@ -11,7 +11,8 @@ from urllib.parse import urlsplit
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, ".peekaboo", "config.json")
-SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "https://peekaboo-477i.onrender.com")
+SERVER_URL = os.getenv("PEEKABOO_SERVER_URL",
+                       "https://peekaboo-477i.onrender.com")
 
 
 def load_config():
@@ -25,6 +26,7 @@ def save_config(config):
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     with open(CONFIG_PATH, "w") as file:
         json.dump(config, file, indent=2)
+
 
 GREEN = "\033[32m"
 CYAN = "\033[36m"

@@ -22,9 +22,52 @@ def minify_css(css: str) -> str:
     return css.strip()
 
 
+def strip_js_comments(js: str) -> str:
+    """Remove // and /* */ comments while leaving string literals intact.
+
+    A naive regex like ``re.sub(r"//.*?\n", ...)`` treats the ``//`` inside a
+    literal such as ``"http://localhost:8000/widget/"`` as a comment start and
+    chops the rest of the line, which breaks the bundle. Track quotes so that
+    ``//`` and ``/*`` are only treated as comments outside strings.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(js)
+    while i < n:
+        ch = js[i]
+        nxt = js[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            while i < n and js[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and nxt == "*":
+            i += 2
+            while i + 1 < n and not (js[i] == "*" and js[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        if ch in "\"'`":
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                ch = js[i]
+                out.append(ch)
+                if ch == "\\" and i + 1 < n:
+                    i += 1
+                    out.append(js[i])
+                elif ch == quote:
+                    i += 1
+                    break
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def minify_js(js: str) -> str:
-    js = re.sub(r"//.*?\n", "\n", js)
-    js = re.sub(r"/\*.*?\*/", "", js, flags=re.DOTALL)
+    js = strip_js_comments(js)
     js = re.sub(r"\n\s*\n", "\n", js)
     js = re.sub(r"\s+", " ", js)
     js = re.sub(r"(;)\s*", r"\1", js)
