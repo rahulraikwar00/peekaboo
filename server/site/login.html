@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Log in to Peekaboo</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; background: #f5f6f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+      .card { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .08); width: 320px; text-align: center; }
+      h1 { margin: 0 0 6px; font-size: 24px; }
+      p { color: #666; margin: 0 0 24px; }
+      a.btn { display: block; margin: 10px 0; padding: 12px; border-radius: 8px; color: #fff; text-decoration: none; font-weight: 600; }
+      a.google { background: #4285f4; }
+      a.github { background: #fff; color: #333; border: 1px solid #ddd; }
+      .alt { margin-top: 8px; font-size: 12px; color: #999; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Peekaboo</h1>
+      <p>Log in to continue in your terminal.</p>
+      <a class="btn google" href="{{ base_url }}/auth/oauth/start?provider=google">Continue with Google</a>
+      <div class="alt">Prefer GitHub?</div>
+      <a class="btn github" href="{{ base_url }}/auth/oauth/start?provider=github">Continue with GitHub</a>
+    </div>
+  </body>
+</html>

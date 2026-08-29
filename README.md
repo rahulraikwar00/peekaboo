@@ -118,6 +118,17 @@ The editable widget files live in `server/widget/`:
 
 Website owners still install the widget with only the generated `script` tag.
 
+## Backend structure
+
+The server is split by responsibility:
+
+- `server/main.py` keeps the deployment entry point (`server.main:app`) and compatibility exports for tests.
+- `server/app.py` builds the FastAPI app and wires static assets plus routes.
+- `server/routes/` contains HTTP and websocket endpoints grouped by feature.
+- `server/services/` contains auth, persistence, and security helpers.
+- `server/state.py` contains in-memory runtime state used when Supabase is not configured.
+- `server/site/` and `server/widget/` contain browser-facing HTML, CSS, and widget assets.
+
 Configure the CLI for the deployed server if the installer is not used:
 
 ```bash
@@ -134,7 +145,7 @@ peekaboo listen
 
 ### OAuth providers
 
-To allow Google/GitHub sign-in, configure the providers in the Supabase dashboard (Auth → Providers) and add the server's `/auth/oauth/callback` URL as an authorized redirect. Set `PUBLIC_BASE_URL` on the server so the callback URLs use your public domain. The `SUPABASE_URL` and `SUPABASE_SECRET_KEY` env vars connect the server to Supabase; without them the server runs in an in-memory mode suitable for local testing only.
+To allow Google/GitHub sign-in, configure the providers in the Supabase dashboard (Auth → Providers) and add the server's `/auth/oauth/callback` URL as an authorized redirect. Set `PUBLIC_BASE_URL` on the server so the callback URLs use your public domain. The `SUPABASE_URL` and `SUPABASE_SECRET_KEY` env vars connect the server to Supabase; without them the server runs in an in-memory mode suitable for local testing only. In local mode, `peekaboo setup` uses a temporary in-memory owner key instead of a real OAuth provider.
 
 The CLI defaults `PEEKABOO_SERVER_URL` (and the listen WebSocket URL) to the deployed server at `https://peekaboo-477i.onrender.com`. Override it with `PEEKABOO_SERVER_URL` when running against a local instance.
 

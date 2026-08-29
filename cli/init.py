@@ -79,17 +79,31 @@ def create_site(origin, api_key):
     request.add_header("Content-Type", "application/json")
     request.add_header("X-API-Key", api_key)
 
-    with urllib.request.urlopen(request, data=payload) as response:
-        return json.loads(response.read())
+    try:
+        with urllib.request.urlopen(request, data=payload) as response:
+            return json.loads(response.read())
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace").strip()
+        message = detail or error.reason
+        raise RuntimeError(
+            f"Could not create site: {error.code} {message}"
+        ) from error
 
 
 def get_oauth_url(provider="google", server_url=SERVER_URL):
     from urllib.parse import quote
-    with urllib.request.urlopen(
-        f"{SERVER_URL}/auth/oauth/start?provider={provider}"
-        f"&server_url={quote(server_url, safe='')}"
-    ) as response:
-        return json.loads(response.read())
+    try:
+        with urllib.request.urlopen(
+            f"{SERVER_URL}/auth/oauth/start?provider={provider}"
+            f"&server_url={quote(server_url, safe='')}"
+        ) as response:
+            return json.loads(response.read())
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace").strip()
+        message = detail or error.reason
+        raise RuntimeError(
+            f"Could not start login: {error.code} {message}"
+        ) from error
 
 
 def poll_oauth_callback(state, timeout=120):
