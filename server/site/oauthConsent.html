@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Authorize · Peekaboo</title>
+    <style>
+      body { font-family: system-ui, -apple-system, sans-serif; background: #f5f6f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+      .card { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .08); width: 360px; text-align: center; }
+      .logo { width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 14px; background: #f0f4f8; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+      h1 { margin: 0 0 8px; font-size: 22px; }
+      p { color: #4b5563; margin: 0 0 24px; line-height: 1.5; }
+      .btn { display: block; padding: 12px; border-radius: 8px; color: #fff; text-decoration: none; font-weight: 600; }
+      .btn.primary { background: #111827; }
+      .btn span.provider { color: #34d399; }
+      .hint { color: #9ca3af; font-size: 12px; margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">PB</div>
+      <h1>Peekaboo</h1>
+      <p>Continue to authorize with <b>{{ provider_label }}</b> to connect your chat account.</p>
+      <a class="btn primary" href="{{ start_url }}">Continue with <span class="provider">{{ provider_label }}</span></a>
+      <div class="hint">This is a secure authorization step. You'll return here when done.</div>
+    </div>
+  </body>
+</html>

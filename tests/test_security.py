@@ -196,8 +196,74 @@ def test_revoked_api_key_is_rejected():
 def test_sites_are_scoped_to_owner():
     with TestClient(main.app) as client:
         owner_a = make_owner()
-        owner_b = make_owner()
         site = create_site(client, api_key=owner_a["api_key"])
 
         stored_owner = main.sites[site["site_id"]]["owner_id"]
         assert stored_owner == owner_a["owner_id"]
+
+
+class FakeQuery:
+    def __init__(self, table_name):
+        self.table_name = table_name
+        self.filters = []
+        self.data = []
+
+    def select(self, *columns):
+        self.columns = columns
+        return self
+
+    def eq(self, column, value):
+        self.filters.append(("eq", column, value))
+        return self
+
+    def is_(self, column, value):
+        self.filters.append(("is_", column, value))
+        return self
+
+    def update(self, values):
+        self.update_values = values
+        return self
+
+    def limit(self, count):
+        self.limit_count = count
+        return self
+
+    def execute(self):
+        type(self).result_data = self.data
+        return self
+
+
+class FakeSupabase:
+    def __init__(self):
+        self.tables = {}
+
+    def table(self, name):
+        if name not in self.tables:
+            self.tables[name] = FakeQuery(name)
+        return self.tables[name]
+
+
+def test_owner_api_key_lookup_uses_null_filter_not_eq():
+    fake = FakeSupabase()
+    main.supabase = fake
+    try:
+        assert main.get_owner_id_from_api_key("some-key") is None
+        query = fake.tables["owner_api_keys"]
+        assert ("is_", "revoked_at", None) in query.filters
+        assert ("eq", "revoked_at", None) not in query.filters
+    finally:
+        main.supabase = None
+
+
+def test_logout_with_unknown_key_returns_404_not_500():
+    fake = FakeSupabase()
+    main.supabase = fake
+    try:
+        with TestClient(main.app) as client:
+            response = client.post(
+                "/auth/logout",
+                headers={"X-API-Key": "some-key"},
+            )
+        assert response.status_code == 404
+    finally:
+        main.supabase = None
