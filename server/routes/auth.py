@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from supabase import create_client
 from supabase_auth.helpers import generate_pkce_challenge, generate_pkce_verifier
 
 from server.config import get_supabase_client, logger, public_base_url
@@ -102,7 +103,15 @@ async def oauth_callback(request: Request):
         public_base_url(request) + f"/auth/oauth/callback?state={state}"
     )
     try:
-        session = db.auth.exchange_code_for_session({
+        # Exchange the PKCE code on an isolated client. Using the shared
+        # service-role client here would store the owner's session on it, which
+        # swaps the Authorization header to the user JWT and makes every later
+        # query run under RLS instead of bypassing it (service role).
+        auth_client = create_client(
+            os.environ["SUPABASE_URL"],
+            os.environ["SUPABASE_SECRET_KEY"],
+        )
+        session = auth_client.auth.exchange_code_for_session({
             "auth_code": code,
             "code_verifier": code_verifier,
             "redirect_to": redirect_to,

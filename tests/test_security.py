@@ -267,3 +267,48 @@ def test_logout_with_unknown_key_returns_404_not_500():
         assert response.status_code == 404
     finally:
         main.supabase = None
+
+
+def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
+    from server.routes import auth as auth_routes
+
+    fake_shared = FakeSupabase()
+    fake_shared.auth = None
+    main.supabase = fake_shared
+    main.pending_oauth["state-1"] = {
+        "code_verifier": "cv-123",
+        "redirect_to": "http://server/cb",
+    }
+
+    class FakeUser:
+        id = "owner-uuid"
+
+    class FakeSession:
+        user = FakeUser()
+
+    class FakeAuth:
+        def exchange_code_for_session(self, params):
+            return FakeSession()
+
+    class FakeThrowawayClient:
+        def __init__(self, *args, **kwargs):
+            self.auth = FakeAuth()
+
+    monkeypatch.setattr(
+        auth_routes, "create_client", lambda *a, **k: FakeThrowawayClient()
+    )
+    monkeypatch.setattr(
+        auth_routes, "mint_owner_api_key", lambda owner_id: "minted-key"
+    )
+    monkeypatch.setattr(
+        auth_routes, "get_supabase_client", lambda: fake_shared
+    )
+
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/auth/oauth/callback?state=state-1&code=code-1",
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 303
+    assert main.pending_oauth["state-1"]["api_key"] == "minted-key"
