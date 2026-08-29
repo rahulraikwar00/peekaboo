@@ -202,9 +202,23 @@ def main():
     origin = ask_for_origin()
 
     config = load_config()
-    api_key = ensure_api_key(config)
 
-    data = create_site_with_spinner(origin, api_key)
+    data = None
+    for attempt in range(2):
+        api_key = ensure_api_key(config)
+        try:
+            data = create_site_with_spinner(origin, api_key)
+            break
+        except RuntimeError as error:
+            if attempt == 0 and "401" in str(error):
+                print(colorize(YELLOW,
+                               "  └─ Saved API key is no longer valid. "
+                               "Logging in again..."))
+                config["owner_api_key"] = None
+                save_config(config)
+                continue
+            raise
+    assert data is not None
 
     site_id = data["site_id"]
     operator_token = data["operator_token"]

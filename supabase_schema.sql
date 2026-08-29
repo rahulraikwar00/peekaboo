@@ -55,3 +55,16 @@ alter table public.owner_api_keys enable row level security;
 -- lets anyone (anon) mint owner API keys. It is a security hole and not needed:
 -- the server inserts through the service role, which bypasses RLS regardless.
 drop policy if exists "Allow key inserts" on public.owner_api_keys;
+
+-- Also remove any dashboard-created policies that open these tables to the
+-- anon/authenticated roles. A table with RLS enabled and no policies denies all
+-- non-service-role access, which is the intended state: only the server (service
+-- role, RLS-bypassing) touches site, owner, and message data.
+drop policy if exists "Enable read access for all users" on public.sites;
+drop policy if exists "Enable insert for authenticated users only" on public.sites;
+drop policy if exists "Enable read access for all users" on public.owner_api_keys;
+drop policy if exists "Enable insert for authenticated users only" on public.owner_api_keys;
+drop policy if exists "Enable read access for all users" on public.messages;
+drop policy if exists "Enable insert for authenticated users only" on public.messages;
+drop policy if exists "Enable read access for all users" on public.conversations;
+drop policy if exists "Enable insert for authenticated users only" on public.conversations;
