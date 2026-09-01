@@ -23,6 +23,8 @@ from server.services.storage import (
 )
 from server.state import operators, visitor_info, visitors
 
+print("server.state 🔥🔥🔥🔥🔥🔥", operators, visitor_info, visitors)
+
 router = APIRouter()
 
 
