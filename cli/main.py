@@ -8,7 +8,28 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(PROJECT_ROOT, ".peekaboo", "config.json")
 LEGACY_CONFIG_PATH = os.path.join(
     os.path.dirname(__file__), ".peekaboo", "config.json")
-SERVER_URL = os.getenv("PEEKABOO_SERVER_URL", "wss://peekaboo-477i.onrender.com")
+
+
+
+def convert_to_ws_url(url):
+    """Convert any URL format to WebSocket format"""
+    url = url.rstrip("/")
+    
+    # Already WebSocket
+    if url.startswith(("ws://", "wss://")):
+        return url
+    
+    # Convert HTTP to WebSocket
+    if url.startswith("https://"):
+        return url.replace("https://", "wss://", 1)
+    elif url.startswith("http://"):
+        return url.replace("http://", "ws://", 1)
+    
+    # No scheme, assume WebSocket
+    return f"ws://{url}"
+
+
+SERVER_URL = convert_to_ws_url(os.getenv("PEEKABOO_SERVER_URL", "wss://peekaboo-477i.onrender.com"))
 
 
 def load_config():
