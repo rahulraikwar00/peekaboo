@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 CONFIG_PATH = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), ".peekaboo", "config.json")
 
-SERVER_URL = "https://peekaboo-477i.onrender.com/"
+SERVER_URL = "https://peekaboo-477i.onrender.com"
 
 
 def load_config():
