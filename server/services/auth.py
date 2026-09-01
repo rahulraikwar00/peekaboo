@@ -7,10 +7,10 @@ from server.services.storage import get_owner_id_from_api_key
 from server.state import owner_api_keys
 
 
-def mint_owner_api_key(owner_id):
+def mint_owner_api_key(owner_id, db_client=None):
     api_key = secrets.token_urlsafe(OPERATOR_TOKEN_BYTES)
     key_hash = hash_token(api_key)
-    db = get_supabase_client()
+    db = db_client if db_client is not None else get_supabase_client()
     if db is not None:
         db.table("owner_api_keys").insert({
             "owner_id": owner_id,

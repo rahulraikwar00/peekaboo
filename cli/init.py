@@ -9,10 +9,19 @@ from contextlib import redirect_stderr, redirect_stdout
 from urllib.request import HTTPError
 from urllib.parse import urlsplit
 
+
+# ADD THIS LINE:
+from dotenv import load_dotenv
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ADD THIS LINE - load .env from project root:
+load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
+
 CONFIG_PATH = os.path.join(PROJECT_ROOT, ".peekaboo", "config.json")
-SERVER_URL = os.getenv("PEEKABOO_SERVER_URL",
-                       "https://peekaboo-477i.onrender.com")
+SERVER_URL = os.getenv("PEEKABOO_SERVER_URL")
+
+print(PROJECT_ROOT, CONFIG_PATH, SERVER_URL)
 
 
 def load_config():
@@ -202,6 +211,7 @@ def main():
     print("  │ Tell us where the widget will live.")
     print(colorize(DIM, "  │ Example: https://yourwebsite.com"))
     origin = ask_for_origin()
+    print("origin", origin)
 
     config = load_config()
 

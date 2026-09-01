@@ -106,7 +106,7 @@ async def oauth_callback(request: Request):
         # 1. Exchange code using an isolated auth-only client
         auth_client = create_client(
             os.environ["SUPABASE_URL"],
-            os.environ["SUPABASE_SECRET_KEY"],
+            os.environ["SUPABASE_ANON_KEY"],
         )
         session = auth_client.auth.exchange_code_for_session({
             "auth_code": code,
@@ -122,7 +122,7 @@ async def oauth_callback(request: Request):
         # that has never touched user sessions or .auth.exchange_code_for_session()
         db_client = create_client(
             os.environ["SUPABASE_URL"],
-            os.environ["SUPABASE_SECRET_KEY"],
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"],
         )
         api_key = mint_owner_api_key(owner_id, db_client=db_client)
     except Exception as exc:

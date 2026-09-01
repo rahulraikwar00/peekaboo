@@ -30,10 +30,10 @@ logging.basicConfig(
 )
 
 supabase: Client | None = None
-if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SECRET_KEY"):
+if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_ROLE_KEY"):
     supabase = create_client(
         os.environ["SUPABASE_URL"],
-        os.environ["SUPABASE_SECRET_KEY"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
     logger.info("Supabase URL: %s", os.environ["SUPABASE_URL"])
     logger.info(
@@ -42,13 +42,13 @@ if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SECRET_KEY"):
     )
 else:
     logger.warning(
-        "Supabase persistence DISABLED (SUPABASE_URL or SUPABASE_SECRET_KEY "
+        "Supabase persistence DISABLED (SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY "
         "missing); running in-memory only."
     )
 
 
 def public_base_url(request, server_url=None):
-    configured = (os.getenv("PUBLIC_BASE_URL") or "").strip()
+    configured = (os.getenv("PEEKABOO_SERVER_URL") or "").strip()
     if configured:
         return configured.rstrip("/")
     server_url = (server_url or "").strip()
@@ -56,13 +56,13 @@ def public_base_url(request, server_url=None):
         return server_url.rstrip("/")
     if request is not None:
         logger.warning(
-            "Neither PUBLIC_BASE_URL nor a server_url was provided; falling "
-            "back to request base_url (%s). Set PUBLIC_BASE_URL to your public "
+            "Neither PEEKABOO_SERVER_URL nor a server_url was provided; falling "
+            "back to request base_url (%s). Set PEEKABOO_SERVER_URL to your public "
             "domain for correct OAuth redirects.",
             str(request.base_url).rstrip("/"),
         )
         return str(request.base_url).rstrip("/")
-    raise RuntimeError("PUBLIC_BASE_URL or server_url is not set")
+    raise RuntimeError("PEEKABOO_SERVER_URL or server_url is not set")
 
 
 def get_supabase_client():

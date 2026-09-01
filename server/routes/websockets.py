@@ -23,6 +23,8 @@ from server.services.storage import (
 )
 from server.state import operators, visitor_info, visitors
 
+print("server.state 🔥🔥🔥🔥🔥🔥", operators, visitor_info, visitors)
+
 router = APIRouter()
 
 
@@ -32,6 +34,7 @@ def valid_origin(websocket, site_id):
         return False
     site = get_site(site_id)
     site_origin = site.get("allowed_origin") if site else None
+    print("💡💡💡💡💡💡", origin, site_origin)
     return bool(site_origin and origin == site_origin)
 
 
