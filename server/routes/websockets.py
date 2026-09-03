@@ -14,6 +14,7 @@ from server.config import (
     RATE_WINDOW_SECONDS,
 )
 from server.services.security import hash_token
+from server.services.domain import origin_allowed
 from server.services.storage import (
     create_conversation,
     get_site,
@@ -33,9 +34,11 @@ def valid_origin(websocket, site_id):
     if not origin:
         return False
     site = get_site(site_id)
-    site_origin = site.get("allowed_origin") if site else None
-    print("💡💡💡💡💡💡", origin, site_origin)
-    return bool(site_origin and origin == site_origin)
+    allowed = (site.get("allowed_origins") if site else None) or (
+        [site["allowed_origin"]] if site and site.get("allowed_origin") else None
+    )
+    print("💡💡💡💡💡💡", origin, allowed)
+    return origin_allowed(origin, allowed)
 
 
 async def broadcast_owner_status(site_id: str, online: bool):

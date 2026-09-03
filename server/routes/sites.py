@@ -48,12 +48,22 @@ async def create_site(request: Request):
         payload = await request.json()
     except ValueError:
         payload = {}
-    allowed_origin = payload.get("origin") if isinstance(payload, dict) else None
-    if allowed_origin:
-        parsed_origin = urlsplit(allowed_origin)
-        if parsed_origin.scheme not in {"http", "https"} or not parsed_origin.netloc:
-            return PlainTextResponse("Invalid website origin", status_code=400)
-        allowed_origin = f"{parsed_origin.scheme}://{parsed_origin.netloc}"
+    payload = payload if isinstance(payload, dict) else {}
+
+    widget_config = payload.get("widget_config")
+    if widget_config is not None and not isinstance(widget_config, dict):
+        return PlainTextResponse("Invalid widget config", status_code=400)
+
+    origins = payload.get("origins")
+    if not isinstance(origins, list):
+        single = payload.get("origin")
+        origins = [single] if single else []
+    origins = [_normalize_origin(o) for o in origins]
+    origins = [o for o in origins if o]
+    bad = [o for o in origins if o is False]
+    if bad:
+        return PlainTextResponse("Invalid website origin", status_code=400)
+    origins = [o for o in origins if o] or None
 
     site_id = "site_" + secrets.token_urlsafe(SITE_ID_BYTES)
     operator_token = secrets.token_urlsafe(OPERATOR_TOKEN_BYTES)
@@ -61,7 +71,8 @@ async def create_site(request: Request):
         "site_id": site_id,
         "owner_id": owner_id,
         "operator_token_hash": hash_token(operator_token),
-        "allowed_origin": allowed_origin,
+        "allowed_origins": origins,
+        "widget_config": widget_config,
     }
     insert_site(site_record)
     visitors[site_id] = set()
@@ -70,3 +81,12 @@ async def create_site(request: Request):
         "site_id": site_id,
         "operator_token": operator_token,
     }
+
+
+def _normalize_origin(origin):
+    if not origin or not isinstance(origin, str):
+        return None
+    parsed_origin = urlsplit(origin)
+    if parsed_origin.scheme not in {"http", "https"} or not parsed_origin.netloc:
+        return False
+    return f"{parsed_origin.scheme}://{parsed_origin.netloc}"

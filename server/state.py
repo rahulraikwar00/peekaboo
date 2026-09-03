@@ -30,3 +30,7 @@ pending_replies = {}
 
 # site_id -> privacy-safe counters
 site_stats = {}
+
+# per-key sliding-window rate limiter (in-process)
+from server.services.ratelimit import SlidingWindowLimiter  # noqa: E402
+limiter = SlidingWindowLimiter()
