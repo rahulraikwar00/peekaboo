@@ -1,0 +1,115 @@
+import httpx
+from server.integrations.telegram import TelegramAdapter, format_telegram_message
+from server.integrations import router
+
+
+def test_format_telegram_message_with_context():
+    event = {
+        "visitor_name": "John",
+        "page": "/projects",
+        "message": "Are you available for freelance work?",
+        "referrer": "https://twitter.com",
+    }
+    text = format_telegram_message(event)
+    assert "New website message" in text
+    assert "From: John" in text
+    assert "Page: /projects" in text
+    assert "Are you available for freelance work?" in text
+
+
+def test_format_telegram_message_minimal():
+    text = format_telegram_message({"message": "hi"})
+    assert "hi" in text
+    assert "From:" not in text
+
+
+class FakeResponse:
+    def __init__(self, json):
+        self._json = json
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._json
+
+
+class FakeClient:
+    def __init__(self):
+        self.requests = []
+        self._closed = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, data):
+        self.requests.append((url, data))
+        method = url.rsplit("/", 1)[-1]
+        if method == "createForumTopic":
+            return FakeResponse({"ok": True, "result": {"message_thread_id": 42}})
+        return FakeResponse({"ok": True, "result": {}})
+
+
+def _run(coro):
+    import asyncio
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def test_telegram_adapter_creates_thread_then_sends(monkeypatch):
+    monkeypatch.setenv(
+        "ENCRYPTION_KEY",
+        "M0gU7ZvT1wQ2fVz1rT2gB3jZ4lH5kL6mN7oP8qR9sT0=",
+    )
+    from server.services.crypto import encrypt_credentials
+
+    client = FakeClient()
+    integration = {
+        "provider": "telegram",
+        "destination_id": "12345",
+        "credentials": encrypt_credentials("TOKEN:secret"),
+    }
+    adapter = TelegramAdapter(integration, client=client)
+    conversation = {"conversation_id": "conv_1", "telegram_thread_id": None}
+
+    ok = _run(adapter.deliver(
+        {"message": "hello", "visitor_name": "Ann"},
+        conversation,
+    ))
+    assert ok is True
+    methods = [url.rsplit("/", 1)[-1] for url, _ in client.requests]
+    assert methods == ["createForumTopic", "sendMessage"]
+    send = client.requests[1][1]
+    assert send["chat_id"] == "12345"
+    assert send["message_thread_id"] == 42
+    assert "hello" in send["text"]
+
+
+def test_telegram_adapter_reuses_existing_thread(monkeypatch):
+    monkeypatch.setenv(
+        "ENCRYPTION_KEY",
+        "M0gU7ZvT1wQ2fVz1rT2gB3jZ4lH5kL6mN7oP8qR9sT0=",
+    )
+    from server.services.crypto import encrypt_credentials
+
+    client = FakeClient()
+    integration = {
+        "provider": "telegram",
+        "destination_id": "12345",
+        "credentials": encrypt_credentials("TOKEN:secret"),
+    }
+    adapter = TelegramAdapter(integration, client=client)
+    conversation = {"conversation_id": "conv_1", "telegram_thread_id": "7"}
+
+    ok = _run(adapter.deliver({"message": "hi"}, conversation))
+    assert ok is True
+    methods = [url.rsplit("/", 1)[-1] for url, _ in client.requests]
+    assert methods == ["sendMessage"]
+    assert client.requests[0][1]["message_thread_id"] == "7"
+
+
+def test_build_adapter_mapping():
+    assert router.build_adapter({"provider": "telegram"}) is not None
+    assert router.build_adapter({"provider": "discord"}) is None
