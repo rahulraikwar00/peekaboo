@@ -13,30 +13,36 @@ async def install_script(request: Request):
     return fr'''#!/bin/sh
 set -eu
 
+# ─────────────────────────────────────────────────────────────
+#  Peekaboo CLI installer
+#  Downloads the CLI, sets up a Python environment, and launches
+#  `peekaboo setup` so you can go straight into onboarding.
+# ─────────────────────────────────────────────────────────────
+
 command -v curl >/dev/null 2>&1 || {{ echo "curl is required" >&2; exit 1; }}
 command -v python3 >/dev/null 2>&1 || {{ echo "python3 is required" >&2; exit 1; }}
 
 install_dir="$HOME/.local/bin"
 app_dir="$HOME/.peekaboo"
-echo "Installing Peekaboo CLI..."
+cli_dir="$app_dir/cli"
 mkdir -p "$install_dir"
-mkdir -p "$app_dir/cli"
+mkdir -p "$cli_dir"
+
+echo "  • Setting up the Peekaboo CLI environment..."
 
 if [ ! -x "$app_dir/venv/bin/python" ]; then
-    echo "Creating local environment..."
+    echo "  • Creating Python venv..."
     python3 -m venv "$app_dir/venv"
 fi
 
-echo "Downloading CLI files..."
-base_url="https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli"
-curl -fsSL "$base_url/init.py" -o "$app_dir/cli/init.py" &
-pid_one=$!
-curl -fsSL "$base_url/connect.py" -o "$app_dir/cli/connect.py" &
-pid_two=$!
-curl -fsSL "$base_url/peekaboo.py" -o "$app_dir/cli/peekaboo.py" &
-pid_three=$!
-wait "$pid_one" "$pid_two" "$pid_three"
-echo "CLI ready."
+echo "  • Installing dependencies..."
+"$app_dir/venv/bin/pip" install --quiet --disable-pip-version-check --upgrade python-dotenv
+
+echo "  • Downloading CLI..."
+base_url="{server_url}/cli"
+for name in peekaboo.py init.py connect.py; do
+    curl -fsSL "$base_url/$name" -o "$cli_dir/$name"
+done
 
 cat > "$install_dir/peekaboo" <<'PEEKABOO_COMMAND'
 #!/bin/sh
@@ -45,11 +51,15 @@ app_dir="$HOME/.peekaboo"
 server_url={server_url}
 PEEKABOO_SERVER_URL="$server_url" PYTHONPATH="$app_dir" exec "$app_dir/venv/bin/python" -m cli.peekaboo "$@"
 PEEKABOO_COMMAND
-
 chmod +x "$install_dir/peekaboo"
-echo "Peekaboo CLI installed at $install_dir/peekaboo"
-case ":$PATH:" in
-    *":$install_dir:"*) ;;
-    *) echo "Add it to PATH with: export PATH=\$HOME/.local/bin:\$PATH" ;;
-esac
+
+if ! echo ":$PATH:" | grep -q ":$install_dir:"; then
+    echo
+    echo "  To use 'peekaboo' in this terminal, add it to your PATH:"
+    echo "      export PATH=\"\$HOME/.local/bin:\$PATH\""
+fi
+
+echo
+echo "✦ Peekaboo CLI is ready. Starting setup..."
+exec "$install_dir/peekaboo" setup "$@"
 '''
