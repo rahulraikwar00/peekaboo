@@ -61,6 +61,27 @@ def colorize(code, text):
     return text
 
 
+def prompt(message=""):
+    """Read a line from the user, working even when stdin is a pipe (e.g. when
+    the CLI is launched from `curl ... | sh`). Falls back to /dev/tty so
+    interactive prompts reach a real terminal."""
+    try:
+        if sys.stdin.isatty():
+            return input(message)
+        # stdin is not a terminal (piped); read from the controlling tty.
+        with open("/dev/tty", "r") as tty:
+            print(message, end="", flush=True)
+            return tty.readline().strip()
+    except EOFError:
+        return ""
+    except OSError:
+        # No controlling terminal at all (e.g. CI): report clearly.
+        raise RuntimeError(
+            "This command is interactive and needs a terminal. "
+            "Run it in a terminal instead of piping."
+        )
+
+
 def create_site_with_spinner(origin, api_key):
     result = []
     failure = []
@@ -199,7 +220,7 @@ def ensure_api_key(config):
 
 def ask_for_origin():
     while True:
-        origin = input("  └─ Website URL (required): ").strip()
+        origin = prompt("  └─ Website URL (required): ").strip()
         parsed = urlsplit(origin)
         if parsed.scheme in {"http", "https"} and parsed.netloc:
             return f"{parsed.scheme}://{parsed.netloc}"

@@ -4,7 +4,7 @@ import sys
 import urllib.request
 from urllib.request import HTTPError
 
-from cli.init import load_config, save_config
+from cli.init import load_config, prompt, save_config
 
 GREEN = "\033[32m"
 CYAN = "\033[36m"
@@ -28,10 +28,7 @@ def SERVER_URL():
 def prompt_value(label, hint):
     print(colorize(BOLD, f"\n  {label}"))
     print(colorize(DIM, f"  {hint}"))
-    try:
-        value = input(colorize(CYAN, "  └─ ")).strip()
-    except EOFError:
-        value = ""
+    value = prompt(colorize(CYAN, "  └─ ")).strip()
     return value
 
 
