@@ -1,0 +1,19 @@
+services:
+  peekaboo:
+    build: .
+    image: peekaboo:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-sqlite}
+      DATABASE_URL: /data/peekaboo.db
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+      WIDGET_SIGNING_SECRET: ${WIDGET_SIGNING_SECRET:-}
+    volumes:
+      - peekaboo_data:/data
+    command: uvicorn server.main:app --host 0.0.0.0 --port 8000
+
+volumes:
+  peekaboo_data:
