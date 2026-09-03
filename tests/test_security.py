@@ -12,7 +12,6 @@ from server.services.signing import sign_visitor_token
 def reset_state():
     main.sites.clear()
     main.visitors.clear()
-    main.operators.clear()
     main.visitor_info.clear()
     main.site_creation_attempts.clear()
     main.owner_api_keys.clear()
@@ -24,9 +23,9 @@ def reset_state():
     main.telegram_updates.clear()
 
 
-def make_owner():
-    api_key = main.mint_owner_api_key("owner-test")
-    return {"owner_id": "owner-test", "api_key": api_key}
+def make_owner(owner_id="owner-test"):
+    api_key = main.mint_owner_api_key(owner_id)
+    return {"owner_id": owner_id, "api_key": api_key}
 
 
 def create_site(client, api_key=None, origin=None):
@@ -46,32 +45,26 @@ def test_generated_credentials_have_strong_entropy():
     with TestClient(main.app) as client:
         site = create_site(client)
         assert len(site["site_id"]) > 30
-        assert len(site["operator_token"]) > 60
 
 
 def test_invalid_operator_token_is_rejected():
+    # The operator websocket was retired in favor of the Telegram reply path; the
+    # legacy /ws/operator endpoint no longer exists.
     with TestClient(main.app) as client:
         site = create_site(client)
-        with pytest.raises(WebSocketDisconnect) as error:
+        with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect(
                 f"/ws/operator/{site['site_id']}?token=forged",
             ):
                 pass
-        assert error.value.code == 1008
 
 
-def test_owner_status_reflects_listener_connection():
+def test_site_status_reflects_existence():
     with TestClient(main.app) as client:
         site = create_site(client)
         assert client.get(f"/sites/{site['site_id']}/status").json() == {
-            "operator_online": False
+            "exists": True
         }
-        with client.websocket_connect(
-            f"/ws/operator/{site['site_id']}?token={site['operator_token']}"
-        ):
-            assert client.get(f"/sites/{site['site_id']}/status").json() == {
-                "operator_online": True
-            }
 
 
 def test_visitor_requires_origin_and_valid_site():
@@ -159,11 +152,26 @@ def test_visitor_cannot_connect_without_valid_signed_token():
             assert error.value.code == 1008
 
 
-def test_operator_reply_does_not_cross_conversations():
-    # The operator-reply path was replaced by Telegram webhook delivery
-    # (see tests/test_webhook.py for conversation-isolation via threads).
-    # This placeholder exists only to retire the legacy operator relay test.
-    assert True
+def test_site_detail_requires_owner_and_returns_stats():
+    with TestClient(main.app) as client:
+        api_key = make_owner()["api_key"]
+        site = create_site(client, api_key)
+        # valid owner -> 200 with stats
+        r = client.get(f"/sites/{site['site_id']}", headers={"X-API-Key": api_key})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["site_id"] == site["site_id"]
+        assert "stats" in body
+        # no auth -> 401
+        assert client.get(f"/sites/{site['site_id']}").status_code == 401
+        # another owner -> 403
+        other_key = make_owner(owner_id="owner-other")["api_key"]
+        assert (
+            client.get(
+                f"/sites/{site['site_id']}", headers={"X-API-Key": other_key}
+            ).status_code
+            == 403
+        )
 
 
 def test_create_site_requires_valid_api_key():
@@ -321,3 +329,12 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
             main.pending_oauth.clear()
     finally:
         main.supabase = original
+
+
+def test_secure_headers_on_html_response():
+    with TestClient(main.app) as client:
+        r = client.get("/")
+        assert r.headers.get("Strict-Transport-Security") == (
+            "max-age=63072000; includeSubDomains; preload"
+        )
+        assert r.headers.get("Content-Security-Policy") == "frame-ancestors 'none'"

@@ -8,13 +8,13 @@ from fastapi.responses import PlainTextResponse
 
 from server.config import (
     MAX_SITE_CREATIONS_PER_WINDOW,
-    OPERATOR_TOKEN_BYTES,
     SITE_CREATION_WINDOW_SECONDS,
     SITE_ID_BYTES,
 )
 from server.services.auth import require_owner
-from server.services.security import hash_token
 from server.services.storage import (
+    get_site,
+    get_site_stats,
     insert_site,
     list_sites,
     site_exists,
@@ -32,13 +32,29 @@ async def list_owner_sites(request: Request):
     return {"sites": list_sites(owner_id)}
 
 
+@router.get("/sites/{site_id}")
+async def get_site_detail(site_id: str, request: Request):
+    owner_id = require_owner(request)
+    if not owner_id:
+        return PlainTextResponse("Invalid API key", status_code=401)
+    site = get_site(site_id)
+    if not site:
+        return PlainTextResponse("Site not found", status_code=404)
+    if site.get("owner_id") != owner_id:
+        return PlainTextResponse("Site not owned by this owner", status_code=403)
+    return {
+        "site_id": site["site_id"],
+        "allowed_origins": site.get("allowed_origins"),
+        "widget_config": site.get("widget_config"),
+        "stats": get_site_stats(site_id),
+    }
+
+
 @router.get("/sites/{site_id}/status")
 async def site_status(site_id: str):
     if not site_exists(site_id):
         return PlainTextResponse("Site not found", status_code=404)
-    from server.state import operators
-
-    return {"operator_online": site_id in operators}
+    return {"exists": True}
 
 
 @router.post("/sites")
@@ -78,11 +94,9 @@ async def create_site(request: Request):
     origins = [o for o in origins if o] or None
 
     site_id = "site_" + secrets.token_urlsafe(SITE_ID_BYTES)
-    operator_token = secrets.token_urlsafe(OPERATOR_TOKEN_BYTES)
     site_record = {
         "site_id": site_id,
         "owner_id": owner_id,
-        "operator_token_hash": hash_token(operator_token),
         "allowed_origins": origins,
         "widget_config": widget_config,
     }
@@ -91,7 +105,6 @@ async def create_site(request: Request):
 
     return {
         "site_id": site_id,
-        "operator_token": operator_token,
     }
 
 

@@ -1,4 +1,3 @@
-import hmac
 import json
 import time
 from collections import deque
@@ -11,7 +10,6 @@ from server.config import (
     MAX_VISITORS_PER_SITE,
     RATE_WINDOW_SECONDS,
 )
-from server.services.security import hash_token
 from server.services.domain import origin_allowed
 from server.services.signing import verify_visitor_token
 from server.services.storage import (
@@ -21,7 +19,7 @@ from server.services.storage import (
     pending_replies,
     site_exists,
 )
-from server.state import operators, visitor_info, visitors
+from server.state import visitor_info, visitors
 
 router = APIRouter()
 
@@ -35,22 +33,6 @@ def valid_origin(websocket, site_id):
         [site["allowed_origin"]] if site and site.get("allowed_origin") else None
     )
     return origin_allowed(origin, allowed)
-
-
-async def broadcast_owner_status(site_id: str, online: bool):
-    status_payload = json.dumps({
-        "type": "owner.status",
-        "online": online,
-    })
-    stale = set()
-    for visitor in visitors.get(site_id, set()):
-        try:
-            await visitor.send_text(status_payload)
-        except Exception:
-            stale.add(visitor)
-    for visitor in stale:
-        visitors[site_id].discard(visitor)
-        visitor_info.pop(visitor, None)
 
 
 @router.websocket("/ws/visitor/{site_id}")
@@ -120,15 +102,9 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
                 return
             timestamps.append(now)
 
-            print(f"Visitor [{site_id}]: {message!r}")
-            operator = operators.get(site_id)
-
-            if operator:
-                await operator.send_text(json.dumps({
-                    "type": "visitor.message",
-                    "conversation_id": visitor_info[websocket]["conversation_id"],
-                    "message": message,
-                }))
+            # Visitor messages are sent over POST /v1/messages, not here. Any other
+            # frame is ignored.
+            print(f"Visitor [{site_id}]: non-connected frame ignored")
 
     except WebSocketDisconnect:
         print(f"Visitor disconnected from {site_id}")
@@ -136,60 +112,3 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
     finally:
         visitors[site_id].discard(websocket)
         visitor_info.pop(websocket, None)
-
-
-@router.websocket("/ws/operator/{site_id}")
-async def operator_socket(websocket: WebSocket, site_id: str, token: str):
-    site = get_site(site_id)
-    if not site:
-        await websocket.close(code=1008)
-        return
-
-    expected_token_hash = site["operator_token_hash"]
-    if not hmac.compare_digest(hash_token(token), expected_token_hash):
-        await websocket.close(code=1008)
-        return
-
-    await websocket.accept()
-    operators[site_id] = websocket
-
-    print(f"Operator connected to {site_id}")
-    await broadcast_owner_status(site_id, online=True)
-
-    try:
-        while True:
-            message = await websocket.receive_text()
-            if len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
-                continue
-
-            if not message.startswith("/reply "):
-                continue
-            parts = message.split(" ", 2)
-            if len(parts) != 3:
-                continue
-            _, conversation_id, reply = parts
-            recipients = [
-                visitor for visitor in visitors.get(site_id, set())
-                if visitor_info.get(visitor, {}).get("conversation_id")
-                == conversation_id
-            ]
-
-            print(f"Operator [{site_id}]: {reply!r}")
-
-            for visitor in recipients:
-                try:
-                    await visitor.send_text(json.dumps({
-                        "type": "owner.message",
-                        "message": reply,
-                    }))
-                except Exception:
-                    visitors[site_id].discard(visitor)
-                    visitor_info.pop(visitor, None)
-
-    except WebSocketDisconnect:
-        print(f"Operator disconnected from {site_id}")
-
-    finally:
-        if operators.get(site_id) == websocket:
-            del operators[site_id]
-            await broadcast_owner_status(site_id, online=False)

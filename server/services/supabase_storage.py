@@ -70,6 +70,21 @@ class SupabaseStorage(Storage):
     def increment_replies_sent(self, site_id):
         self.db.rpc("increment_site_replies", {"p_site_id": site_id}).execute()
 
+    def stats(self, site_id):
+        result = (
+            self.db.table("site_stats")
+            .select("*")
+            .eq("site_id", site_id)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else {
+            "site_id": site_id,
+            "messages_received": 0,
+            "replies_sent": 0,
+            "last_message_at": None,
+        }
+
     # --- integrations ---
     def list_integrations(self, site_id):
         result = (

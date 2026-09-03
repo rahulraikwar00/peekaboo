@@ -51,6 +51,19 @@ class TelegramAdapter(IntegrationAdapter):
             raise RuntimeError(f"Telegram {method} failed: {payload}")
         return payload.get("result") or {}
 
+    async def set_webhook(self, url: str, secret: str) -> bool:
+        """Point Telegram to our webhook endpoint with the secret token."""
+        try:
+            await self._request(
+                "setWebhook",
+                url=url,
+                secret_token=secret,
+                allowed_updates='["message"]',
+            )
+        except Exception:
+            return False
+        return True
+
     async def _create_thread(self, event: dict) -> str | None:
         """Create a per-conversation forum topic and return the thread id."""
         chat_id = self.integration["destination_id"]

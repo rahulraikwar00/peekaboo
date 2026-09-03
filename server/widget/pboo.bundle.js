@@ -1,1 +1,572 @@
-const WIDGET_MARKUP='<button\n class="launcher"\n type="button"\n aria-expanded="false"\n aria-label="Open chat"\n>\n+\n</button>\n<section class="panel" aria-label="Chat with the website owner">\n <header>\n <strong>Chat with us</strong>\n <span class="status">\n <span class="status-dot"></span>\n <span class="status-text">Connecting...</span>\n </span>\n </header>\n <div class="messages" aria-live="polite">\n <div class="message owner">Hi! How can we help?</div>\n </div>\n <form>\n <input\n aria-label="Message"\n placeholder="Write a message..."\n autocomplete="off"\n /><button type="submit">Send</button>\n </form>\n</section>'; const WIDGET_STYLES=':host{all:initial;}*{box-sizing:border-box;}body{font-family:Georgia,"Times New Roman",serif;}:host{--ink:#17212b; --muted:#64747b; --paper:#f4f7f3; --line:#d5dfd9; --accent:#e85d3f; --mint:#d9eee2;}.launcher{position:fixed; right:24px; bottom:24px; z-index:2147483647; width:56px; height:56px; border:2px solid var(--accent); border-radius:50%; background:var(--ink); color:var(--paper); font:700 32px system-ui; cursor:pointer; box-shadow:0 2px 8px rgba(23,33,43,0.2); transition:all 0.3s ease; display:flex; align-items:center; justify-content:center;}.launcher:hover{background:var(--accent); color:var(--ink); box-shadow:0 4px 12px rgba(232,93,63,0.3);}.panel{position:fixed; right:24px; bottom:94px; z-index:2147483647; display:none; flex-direction:column; width:380px; height:560px; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:var(--paper); color:var(--ink); font:14px system-ui; box-shadow:0 8px 24px rgba(23,33,43,0.12); animation:slideUp 0.3s ease-out;}.panel.open{display:flex;}@keyframes slideUp{from{transform:translateY(20px); opacity:0;}to{transform:translateY(0); opacity:1;}}header{padding:16px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;}header strong{font-size:16px; color:var(--ink); font-weight:600; letter-spacing:-0.01em; font-family:Georgia,serif;}.status{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); font-family:system-ui,sans-serif;}.status-dot{width:8px; height:8px; background:var(--muted); border-radius:50%; transition:all 0.2s;}.status.online.status-dot{background:#16a34a; animation:pulse 2s infinite;}.status.typing.status-dot{background:var(--accent); animation:pulse 1.4s infinite;}@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}.messages{display:flex; flex:1; flex-direction:column; gap:12px; padding:16px; overflow-y:auto; background:var(--paper);}.messages::-webkit-scrollbar{width:6px;}.messages::-webkit-scrollbar-track{background:transparent;}.messages::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px;}.messages::-webkit-scrollbar-thumb:hover{background:var(--muted);}.message{max-width:85%; padding:10px 14px; border-radius:12px; line-height:1.4; word-break:break-word; display:flex; flex-direction:column; gap:4px; animation:fadeIn 0.2s ease-out;}@keyframes fadeIn{from{opacity:0; transform:translateY(8px);}to{opacity:1; transform:translateY(0);}}.message.visitor{align-self:flex-end; background:var(--mint); color:var(--ink); border-radius:12px 12px 4px 12px;}.message.visitor.timestamp{font-size:11px; color:var(--muted); text-align:right; font-family:system-ui,sans-serif;}.message.owner{align-self:flex-start; background:var(--ink); color:var(--paper); border-radius:12px 12px 12px 4px;}.message.owner.timestamp{font-size:11px; color:rgba(244,247,243,0.6); font-family:system-ui,sans-serif;}.message.typing{align-self:flex-start; background:var(--ink); color:var(--paper); padding:10px 14px; border-radius:12px; display:flex; gap:4px; width:fit-content;}.typing-dot{width:8px; height:8px; background:var(--paper); border-radius:50%; animation:bounce 1.4s infinite;}.typing-dot:nth-child(2){animation-delay:0.2s;}.typing-dot:nth-child(3){animation-delay:0.4s;}@keyframes bounce{0%,80%,100%{opacity:0.3; transform:translateY(0);}40%{opacity:1; transform:translateY(-8px);}}.message.system{align-self:center; background:rgba(232,93,63,0.1); color:var(--accent); padding:12px 16px; border-radius:6px; text-align:center; font-size:13px; max-width:90%; border:1px solid rgba(232,93,63,0.2);}.message.system.error{background:rgba(200,30,30,0.1); color:#c81e1e; border-color:rgba(200,30,30,0.2);}form{display:flex; gap:8px; padding:12px; border-top:1px solid var(--line); background:var(--paper);}input{min-width:0; flex:1; padding:10px 12px; border:1px solid var(--line); border-radius:6px; font-family:system-ui,sans-serif; font-size:14px; color:var(--ink); background:white; transition:border-color 0.2s;}input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(232,93,63,0.1);}input::placeholder{color:var(--muted);}form button{padding:10px 16px; background:var(--accent); color:white; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; transition:all 0.2s; font-family:system-ui,sans-serif;}form button:hover:not(:disabled){background:#d94826; box-shadow:0 2px 6px rgba(232,93,63,0.3);}form button:disabled{background:var(--muted); cursor:not-allowed; opacity:0.6;}@media(max-width:640px){.launcher{right:16px; bottom:16px;}.panel{right:16px; bottom:72px; width:calc(100vw - 32px); height:60vh; max-height:calc(100vh - 100px);}}'; const currentScript=document.currentScript; const siteId=currentScript?.dataset.site; const assetRoot=currentScript ? new URL(".",currentScript.src): new URL("http://localhost:8000/widget/"); const serverUrl=assetRoot.origin; const socketUrl=serverUrl.replace(/^http/,"ws"); const visitorIdKey=`peekaboo-visitor-${siteId}`; const visitorId=getVisitorId(); if(!siteId){console.error("Peekaboo: data-site is missing");}else{loadWidget(siteId);}function loadWidget(siteId){try{const markup=typeof WIDGET_MARKUP !=="undefined" ? WIDGET_MARKUP : ""; const styles=typeof WIDGET_STYLES !=="undefined" ? WIDGET_STYLES : ""; if(!markup || !styles){throw new Error("widget assets are missing");}createWidget(siteId,markup,styles);}catch(error){console.error("Peekaboo: could not load widget assets",error);}}function createWidget(siteId,markup,styles){const host=document.createElement("div"); host.setAttribute("aria-label","Peekaboo chat"); document.body.appendChild(host); const root=host.attachShadow({mode: "open"}); root.innerHTML=`<style>${styles}</style>${markup}`; const launcher=root.querySelector(".launcher"); const panel=root.querySelector(".panel"); const status=root.querySelector(".status"); const messages=root.querySelector(".messages"); const form=root.querySelector("form"); const input=root.querySelector("input"); const sendButton=root.querySelector("form button"); let socket; function addMessage(text,kind,includeTimestamp=true){const message=document.createElement("div"); message.className=`message ${kind}`; message.textContent=text; if(includeTimestamp && kind !=="system" && kind !=="typing"){const timestamp=document.createElement("div"); timestamp.className="timestamp"; timestamp.textContent=formatTime(new Date()); message.appendChild(timestamp);}messages.appendChild(message); messages.scrollTop=messages.scrollHeight;}function formatTime(date){const hours=String(date.getHours()).padStart(2,"0"); const minutes=String(date.getMinutes()).padStart(2,"0"); return `${hours}:${minutes}`;}function addTypingIndicator(){const existing=messages.querySelector(".message.typing"); if(existing)existing.remove(); const typing=document.createElement("div"); typing.className="message typing"; typing.innerHTML="<span class='typing-dot'></span><span class='typing-dot'></span><span class='typing-dot'></span>"; messages.appendChild(typing); messages.scrollTop=messages.scrollHeight; return typing;}function removeTypingIndicator(){const typing=messages.querySelector(".message.typing"); if(typing)typing.remove();}function updateStatus(text,type="default"){const statusText=status.querySelector(".status-text"); if(statusText)statusText.textContent=text; status.className="status"; if(type==="online")status.classList.add("online"); else if(type==="typing")status.classList.add("typing");}function connect(){socket=new WebSocket(`${socketUrl}/ws/visitor/${siteId}`); socket.onopen=()=>{status.textContent="Connecting..."; socket.send(JSON.stringify({type: "visitor.connected",visitor_id: visitorId,page: window.location.pathname,}),);}; socket.onmessage=(event)=>{try{const data=JSON.parse(event.data); if(data.type==="owner.status"){removeTypingIndicator(); if(data.online){updateStatus("Owner is online","online"); sendButton.disabled=false;}else{updateStatus("Owner is offline","default"); sendButton.disabled=true;}return;}if(data.type==="owner.message"){removeTypingIndicator(); addMessage(data.message ?? event.data,"owner"); return;}}catch{addMessage(event.data,"owner");}}; socket.onerror=()=>{updateStatus("Connection unavailable","default");}; socket.onclose=()=>{updateStatus("Connecting...","default"); socket=null; setTimeout(connect,5000);};}launcher.addEventListener("click",()=>{const isOpen=panel.classList.toggle("open"); launcher.setAttribute("aria-expanded",String(isOpen)); launcher.textContent=isOpen ? "x" : "+"; if(isOpen)input.focus();}); form.addEventListener("submit",(event)=>{event.preventDefault(); const text=input.value.trim(); if(!text || !socket || socket.readyState !==WebSocket.OPEN)return; socket.send(text); addMessage(text,"visitor",true); input.value="";}); sendButton.disabled=true; connect();}function getVisitorId(){const storedId=localStorage.getItem(visitorIdKey); if(storedId)return storedId; const newId=crypto.randomUUID(); localStorage.setItem(visitorIdKey,newId); return newId;}
+// Peekaboo Widget Bundle
+// Generated by build_widget.py
+// Contains: widget.html, styles.css, and pboo.js
+
+window.WIDGET_MARKUP = `<button
+  class="launcher"
+  type="button"
+  aria-expanded="false"
+  aria-label="Open chat"
+>
+  +
+</button>
+<section class="panel" aria-label="Chat with the website owner">
+  <header>
+    <strong>Chat with us</strong>
+    <span class="status">
+      <span class="status-dot"></span>
+      <span class="status-text">Connecting...</span>
+    </span>
+  </header>
+  <div class="messages" aria-live="polite">
+    <div class="message owner">Hi! How can we help?</div>
+  </div>
+  <form>
+    <input
+      aria-label="Message"
+      placeholder="Write a message..."
+      autocomplete="off"
+    /><button type="submit">Send</button>
+  </form>
+</section>
+`;
+
+window.WIDGET_STYLES = `:host {
+  all: initial;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+/* Color Variables */
+:host {
+  --ink: #17212b;
+  --muted: #64747b;
+  --paper: #f4f7f3;
+  --line: #d5dfd9;
+  --accent: #e85d3f;
+  --mint: #d9eee2;
+}
+
+/* Launcher Button */
+.launcher {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147483647;
+  width: 56px;
+  height: 56px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font: 700 32px system-ui;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(23, 33, 43, 0.2);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.launcher:hover {
+  background: var(--accent);
+  color: var(--ink);
+  box-shadow: 0 4px 12px rgba(232, 93, 63, 0.3);
+}
+
+/* Panel Container */
+.panel {
+  position: fixed;
+  right: 24px;
+  bottom: 94px;
+  z-index: 2147483647;
+  display: none;
+  flex-direction: column;
+  width: 380px;
+  height: 560px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 14px system-ui;
+  box-shadow: 0 8px 24px rgba(23, 33, 43, 0.12);
+  animation: slideUp 0.3s ease-out;
+}
+
+.panel.open {
+  display: flex;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Header */
+header {
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+header strong {
+  font-size: 16px;
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-family: Georgia, serif;
+}
+
+/* Status Indicator */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: system-ui, sans-serif;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.status.online .status-dot {
+  background: #16a34a;
+  animation: pulse 2s infinite;
+}
+
+.status.typing .status-dot {
+  background: var(--accent);
+  animation: pulse 1.4s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Messages Container */
+.messages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--paper);
+}
+
+.messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 3px;
+}
+
+.messages::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Message Bubbles */
+.message {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Visitor Message - Right aligned, mint tint */
+.message.visitor {
+  align-self: flex-end;
+  background: var(--mint);
+  color: var(--ink);
+  border-radius: 12px 12px 4px 12px;
+}
+
+.message.visitor .timestamp {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  font-family: system-ui, sans-serif;
+}
+
+/* Owner Message - Left aligned, dark */
+.message.owner {
+  align-self: flex-start;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 12px 12px 12px 4px;
+}
+
+.message.owner .timestamp {
+  font-size: 11px;
+  color: rgba(244, 247, 243, 0.6);
+  font-family: system-ui, sans-serif;
+}
+
+/* Typing Indicator */
+.message.typing {
+  align-self: flex-start;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 10px 14px;
+  border-radius: 12px;
+  display: flex;
+  gap: 4px;
+  width: fit-content;
+}
+
+.typing-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--paper);
+  border-radius: 50%;
+  animation: bounce 1.4s infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-8px); }
+}
+
+/* System Messages */
+.message.system {
+  align-self: center;
+  background: rgba(232, 93, 63, 0.1);
+  color: var(--accent);
+  padding: 12px 16px;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 13px;
+  max-width: 90%;
+  border: 1px solid rgba(232, 93, 63, 0.2);
+}
+
+.message.system.error {
+  background: rgba(200, 30, 30, 0.1);
+  color: #c81e1e;
+  border-color: rgba(200, 30, 30, 0.2);
+}
+
+/* Input Form */
+form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+input {
+  min-width: 0;
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--ink);
+  background: white;
+  transition: border-color 0.2s;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(232, 93, 63, 0.1);
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+/* Submit Button */
+form button {
+  padding: 10px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: system-ui, sans-serif;
+}
+
+form button:hover:not(:disabled) {
+  background: #d94826;
+  box-shadow: 0 2px 6px rgba(232, 93, 63, 0.3);
+}
+
+form button:disabled {
+  background: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Mobile Responsive */
+@media (max-width: 640px) {
+  .launcher {
+    right: 16px;
+    bottom: 16px;
+  }
+  .panel {
+    right: 16px;
+    bottom: 72px;
+    width: calc(100vw - 32px);
+    height: 60vh;
+    max-height: calc(100vh - 100px);
+  }
+}
+`;
+
+// Peekaboo Loader
+const currentScript = document.currentScript;
+const siteId = currentScript?.dataset.site;
+const assetRoot = currentScript
+  ? new URL(".", currentScript.src)
+  : new URL("http://localhost:8000/widget/");
+const serverUrl = assetRoot.origin;
+const socketUrl = serverUrl.replace(/^http/, "ws");
+const visitorIdKey = `peekaboo-visitor-${siteId}`;
+const visitorId = getVisitorId();
+
+if (!siteId) {
+  console.error("Peekaboo: data-site is missing");
+} else {
+  loadWidget(siteId);
+}
+
+function loadWidget(siteId) {
+  try {
+    const markup = typeof WIDGET_MARKUP !== "undefined" ? WIDGET_MARKUP : "";
+    const styles = typeof WIDGET_STYLES !== "undefined" ? WIDGET_STYLES : "";
+    if (!markup || !styles) {
+      throw new Error("widget assets are missing");
+    }
+    createWidget(siteId, markup, styles);
+  } catch (error) {
+    console.error("Peekaboo: could not load widget assets", error);
+  }
+}
+
+function createWidget(siteId, markup, styles) {
+  const host = document.createElement("div");
+  host.setAttribute("aria-label", "Peekaboo chat");
+  document.body.appendChild(host);
+
+  const root = host.attachShadow({ mode: "open" });
+  root.innerHTML = `<style>${styles}</style>${markup}`;
+
+  const launcher = root.querySelector(".launcher");
+  const panel = root.querySelector(".panel");
+  const status = root.querySelector(".status");
+  const messages = root.querySelector(".messages");
+  const form = root.querySelector("form");
+  const input = root.querySelector("input");
+  const sendButton = root.querySelector("form button");
+  let socket;
+  let visitorToken = null;
+
+  function addMessage(text, kind, includeTimestamp = true) {
+    const message = document.createElement("div");
+    message.className = `message ${kind}`;
+    message.textContent = text;
+
+    if (includeTimestamp && kind !== "system" && kind !== "typing") {
+      const timestamp = document.createElement("div");
+      timestamp.className = "timestamp";
+      timestamp.textContent = formatTime(new Date());
+      message.appendChild(timestamp);
+    }
+
+    messages.appendChild(message);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function formatTime(date) {
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }
+
+  function addTypingIndicator() {
+    const existing = messages.querySelector(".message.typing");
+    if (existing) existing.remove();
+
+    const typing = document.createElement("div");
+    typing.className = "message typing";
+    typing.innerHTML =
+      "<span class='typing-dot'></span><span class='typing-dot'></span><span class='typing-dot'></span>";
+    messages.appendChild(typing);
+    messages.scrollTop = messages.scrollHeight;
+    return typing;
+  }
+
+  function removeTypingIndicator() {
+    const typing = messages.querySelector(".message.typing");
+    if (typing) typing.remove();
+  }
+
+  function updateStatus(text, type = "default") {
+    const statusText = status.querySelector(".status-text");
+    if (statusText) statusText.textContent = text;
+
+    status.className = "status";
+    if (type === "online") status.classList.add("online");
+    else if (type === "typing") status.classList.add("typing");
+  }
+
+  function connect() {
+    if (!visitorToken) return;
+    if (socket && socket.readyState === WebSocket.OPEN) return;
+    socket = new WebSocket(`${socketUrl}/ws/visitor/${siteId}`);
+    socket.onopen = () => {
+      status.textContent = "Connecting...";
+      socket.send(
+        JSON.stringify({
+          type: "visitor.connected",
+          visitor_token: visitorToken,
+        }),
+      );
+    };
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "owner.status") {
+          removeTypingIndicator();
+          if (data.online) {
+            updateStatus("Owner is online", "online");
+            sendButton.disabled = false;
+          } else {
+            updateStatus("Owner is offline", "default");
+            sendButton.disabled = true;
+          }
+          return;
+        }
+        if (data.type === "owner.message") {
+          removeTypingIndicator();
+          addMessage(data.message ?? event.data, "owner");
+          return;
+        }
+      } catch {
+        addMessage(event.data, "owner");
+      }
+    };
+    socket.onerror = () => {
+      updateStatus("Connection unavailable", "default");
+      socket = null;
+    };
+    socket.onclose = () => {
+      socket = null;
+      updateStatus("Connecting...", "default");
+    };
+  }
+
+  function sendMessage(text) {
+    const body = {
+      site_id: siteId,
+      visitor_id: visitorId,
+      message: text,
+      page: window.location.pathname,
+      referrer: document.referrer || "",
+    };
+    return fetch(`${serverUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((resp) => {
+        if (!resp.ok) throw new Error("send failed");
+        return resp.json();
+      })
+      .then((data) => {
+        // Reconnect with a fresh signed token once any previous one has expired.
+        visitorToken = data.visitor_token || visitorToken;
+        if (data.visitor_token && (!socket || socket.readyState !== WebSocket.OPEN)) {
+          connect();
+        }
+      });
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    sendMessage(text)
+      .then(() => {
+        addMessage(text, "visitor", true);
+        input.value = "";
+      })
+      .catch(() => {
+        updateStatus("Failed to send — try again", "default");
+      });
+  });
+
+  launcher.addEventListener("click", () => {
+    const isOpen = panel.classList.toggle("open");
+    launcher.setAttribute("aria-expanded", String(isOpen));
+    launcher.textContent = isOpen ? "x" : "+";
+    if (isOpen) input.focus();
+  });
+
+  sendButton.disabled = false;
+}
+
+function getVisitorId() {
+  const storedId = localStorage.getItem(visitorIdKey);
+  if (storedId) return storedId;
+  const newId = crypto.randomUUID();
+  localStorage.setItem(visitorIdKey, newId);
+  return newId;
+}
+

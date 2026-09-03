@@ -7,9 +7,6 @@ owner_api_keys = {}
 # site_id -> connected visitors
 visitors = {}
 
-# site_id -> connected operator
-operators = {}
-
 # websocket -> visitor metadata
 visitor_info = {}
 

@@ -28,7 +28,8 @@ from urllib.parse import urlsplit
 CONFIG_PATH = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), ".peekaboo", "config.json")
 
-SERVER_URL = "https://peekaboo-477i.onrender.com"
+SERVER_URL = (os.getenv("PEEKABOO_SERVER_URL") or
+              "https://peekaboo-477i.onrender.com").rstrip("/")
 
 
 def load_config():
@@ -240,17 +241,14 @@ def main():
     assert data is not None
 
     site_id = data["site_id"]
-    operator_token = data["operator_token"]
 
     config["site_id"] = site_id
-    config["operator_token"] = operator_token
     save_config(config)
 
     print(colorize(GREEN, "  ✨ Site created!"))
     print(f"  {colorize(DIM, 'Site ID:')} {site_id}")
     if origin:
         print(f"  {colorize(DIM, 'Website:')} {origin}")
-    print(colorize(GREEN, "  🔐 Operator credentials saved locally"))
     print(colorize(BOLD + BLUE, "\n  ┌─ Add this one line to your website\n  │"))
     print(
         f'  │ <script '
@@ -258,8 +256,8 @@ def main():
         f'data-site="{site_id}">'
         f'</script>'
     )
-    print(colorize(BOLD + BLUE, "\n  └─ Then open your inbox\n"))
-    print(colorize(BOLD + YELLOW, "     $ peekaboo listen"))
+    print(colorize(BOLD + BLUE, "\n  └─ Then wire up your Telegram inbox\n"))
+    print(colorize(BOLD + YELLOW, "     $ peekaboo connect"))
     print(colorize(MAGENTA, "\n  Happy chatting! ✦\n"))
 
 
