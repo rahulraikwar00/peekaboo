@@ -113,20 +113,29 @@ def get_conversation(conversation_id):
     return get_storage().get_conversation(conversation_id)
 
 
-def get_conversation_by_thread(site_id, thread_id):
-    return get_storage().get_conversation_by_thread(site_id, thread_id)
+def get_conversation_by_integration_thread(site_id, integration_id, thread_id):
+    return get_storage().get_conversation_by_integration_thread(
+        site_id, integration_id, thread_id
+    )
 
 
-def get_or_create_conversation(site_id, visitor_id):
-    return get_storage().get_or_create_conversation(site_id, visitor_id)
+def get_or_create_conversation(site_id, visitor_id, integration_id=None):
+    return get_storage().get_or_create_conversation(site_id, visitor_id, integration_id)
 
 
-def update_conversation_thread(conversation_id, thread_id):
-    return get_storage().update_conversation_thread(conversation_id, thread_id)
+def update_conversation_integration_ref(conversation_id, integration_id, thread_id):
+    return get_storage().update_conversation_integration_ref(
+        conversation_id, integration_id, thread_id
+    )
 
 
 def create_conversation(conversation_id, site_id, visitor_id=None):
     return get_storage().create_conversation(conversation_id, site_id, visitor_id)
+
+
+# --- telegram update dedup ---
+def webhook_update_seen(update_id) -> bool:
+    return get_storage().webhook_update_seen(update_id)
 
 
 # --- pending replies ---

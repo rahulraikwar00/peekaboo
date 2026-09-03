@@ -48,7 +48,12 @@ Monolith for the MVP. No queue / Redis / K8s until scaling triggers are hit (see
    credentials (Fernet-encrypted bot token), webhook_secret, enabled,
    config jsonb, created_at, updated_at`
 - **conversations** (re-scoped, metadata only):
-  `conversation_id, site_id, visitor_id, telegram_thread_id, created_at, last_activity_at`
+  `conversation_id, site_id, visitor_id, integration_id,
+   telegram_chat_id, telegram_thread_id, created_at, last_activity_at`
+  Routing is by `(integration_id, telegram_thread_id)` — never thread_id alone — because
+  different bots/groups can reuse the same numeric thread ids.
+- **telegram_updates** (new — webhook retry dedup):
+  `update_id text PK, received_at`; a unique key so retried updates are dropped.
 - **site_stats** (new, privacy-safe counts):
   `site_id, messages_received, replies_sent, last_message_at`
 - **pending_replies** (new — offline reply queue):
@@ -77,8 +82,10 @@ Storage backend: a `Storage` interface with `SqliteStorage` (self-host) + `Supab
 
 - Shadow DOM + single bundle (`build_widget.py`), framework-independent.
 - **Send:** `fetch(POST /v1/messages)` with `{site_id, visitor_id, name?, message, page?, referrer?}`.
-- **Receive:** open WS `/ws/visitor/{site_id}`; on open send `visitor.connected {visitor_id, conversation_id?}`;
-  handle `owner.message`, `pending.delivered`; reconnect with bounded backoff.
+  Response carries a short-lived signed `visitor_token` authorizing subscribe access to that conversation.
+- **Receive:** open WS `/ws/visitor/{site_id}`; on open send `visitor.connected {visitor_token}` — the server
+  verifies the signature/expiry and resolves the visitor from the token (never a raw client id), so a visitor
+  can only subscribe to their own conversation. Handle `owner.message`; reconnect with bounded backoff.
 - `conversation_id` kept client-side (localStorage, keyed by site) so a returning visitor resumes
   the same conversation and picks up pending replies.
 - Trim bundle (drop simulation/preview bloat) toward <= ~30 KB gzip.
@@ -86,7 +93,8 @@ Storage backend: a `Storage` interface with `SqliteStorage` (self-host) + `Supab
 
 ## Offline reply delivery sequence
 
-1. Webhook receives owner reply → map `message_thread_id` → conversation.
+1. Webhook receives owner reply → dedup on `update_id` (Telegram retries until acked) → map
+   `(integration_id, message_thread_id)` → conversation.
 2. If visitor socket open → push `owner.message`, `replies_sent++`, done.
 3. If closed → `INSERT pending_replies` (reply, conversation_id, ttl).
 4. Visitor later reconnects → WS `visitor.connected` carries conversation_id → server

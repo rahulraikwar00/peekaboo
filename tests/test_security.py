@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from server import main
+from server.services.signing import sign_visitor_token
 
 
 @pytest.fixture(autouse=True)
@@ -20,6 +21,7 @@ def reset_state():
     main.integrations.clear()
     main.pending_replies.clear()
     main.site_stats.clear()
+    main.telegram_updates.clear()
 
 
 def make_owner():
@@ -115,7 +117,7 @@ def test_visitor_message_is_scoped_and_size_limited():
         ) as visitor:
             visitor.send_text(json.dumps({
                 "type": "visitor.connected",
-                "visitor_id": "v-1",
+                "visitor_token": sign_visitor_token(site["site_id"], "v-1"),
             }))
             # Right-sized visitor frame is fine.
             visitor.send_text("hello")
@@ -124,6 +126,37 @@ def test_visitor_message_is_scoped_and_size_limited():
             with pytest.raises(WebSocketDisconnect) as error:
                 visitor.receive_text()
             assert error.value.code == 1009
+
+
+def test_visitor_cannot_connect_without_valid_signed_token():
+    with TestClient(main.app) as client:
+        site_a = create_site(client, origin="https://example.test")
+        site_b = create_site(client, origin="https://example.test")
+        with client.websocket_connect(
+            f"/ws/visitor/{site_a['site_id']}",
+            headers={"origin": "https://example.test"},
+        ) as visitor:
+            # A raw visitor_id (no token) must be rejected.
+            visitor.send_text(json.dumps({
+                "type": "visitor.connected",
+                "visitor_id": "attacker",
+            }))
+            with pytest.raises(WebSocketDisconnect) as error:
+                visitor.receive_text()
+            assert error.value.code == 1008
+
+        # A token minted for one site cannot be replayed against another site.
+        with client.websocket_connect(
+            f"/ws/visitor/{site_a['site_id']}",
+            headers={"origin": "https://example.test"},
+        ) as visitor:
+            visitor.send_text(json.dumps({
+                "type": "visitor.connected",
+                "visitor_token": sign_visitor_token(site_b["site_id"], "x"),
+            }))
+            with pytest.raises(WebSocketDisconnect) as error:
+                visitor.receive_text()
+            assert error.value.code == 1008
 
 
 def test_operator_reply_does_not_cross_conversations():

@@ -13,6 +13,7 @@ from server.config import (
 )
 from server.services.security import hash_token
 from server.services.domain import origin_allowed
+from server.services.signing import verify_visitor_token
 from server.services.storage import (
     delete_pending_reply,
     get_or_create_conversation,
@@ -21,8 +22,6 @@ from server.services.storage import (
     site_exists,
 )
 from server.state import operators, visitor_info, visitors
-
-print("server.state 🔥🔥🔥🔥🔥🔥", operators, visitor_info, visitors)
 
 router = APIRouter()
 
@@ -35,7 +34,6 @@ def valid_origin(websocket, site_id):
     allowed = (site.get("allowed_origins") if site else None) or (
         [site["allowed_origin"]] if site and site.get("allowed_origin") else None
     )
-    print("💡💡💡💡💡💡", origin, allowed)
     return origin_allowed(origin, allowed)
 
 
@@ -89,19 +87,25 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
             except json.JSONDecodeError:
                 event = None
             if isinstance(event, dict) and event.get("type") == "visitor.connected":
-                visitor_id = event.get("visitor_id")
+                # Resolve the visitor from its signed token, never from a raw id
+                # field. A visitor can only subscribe to their own conversation.
+                visitor_id = verify_visitor_token(
+                    site_id, event.get("visitor_token") or ""
+                )
+                if visitor_id is None:
+                    await websocket.close(code=1008)
+                    return
                 visitor_info[websocket]["visitor_id"] = visitor_id
-                if visitor_id:
-                    conv = get_or_create_conversation(site_id, visitor_id)
-                    visitor_info[websocket]["conversation_id"] = conv["conversation_id"]
-                    # Deliver any replies the visitor missed while offline.
-                    for pr in pending_replies(conv["conversation_id"]):
-                        await websocket.send_text(json.dumps({
-                            "type": "owner.message",
-                            "message": pr["reply"],
-                            "pending": True,
-                        }))
-                        delete_pending_reply(pr["id"])
+                conv = get_or_create_conversation(site_id, visitor_id, None)
+                visitor_info[websocket]["conversation_id"] = conv["conversation_id"]
+                # Deliver any replies the visitor missed while offline.
+                for pr in pending_replies(conv["conversation_id"]):
+                    await websocket.send_text(json.dumps({
+                        "type": "owner.message",
+                        "message": pr["reply"],
+                        "pending": True,
+                    }))
+                    delete_pending_reply(pr["id"])
                 continue
             if len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
                 await websocket.close(code=1009)

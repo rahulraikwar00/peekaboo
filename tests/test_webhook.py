@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from server import main
 from server.services import storage
+from server.services.signing import sign_visitor_token
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +17,7 @@ def reset_state():
     main.integrations.clear()
     main.pending_replies.clear()
     main.site_stats.clear()
+    main.telegram_updates.clear()
     main.visitors.clear()
     main.visitor_info.clear()
     from server.state import limiter
@@ -33,7 +35,9 @@ def make_site_with_integration(client):
     site_id = resp.json()["site_id"]
 
     # Insert a telegram integration directly (owner-route tested elsewhere).
+    integration_id = "int_" + "a" * 24
     storage.insert_integration({
+        "integration_id": integration_id,
         "site_id": site_id,
         "provider": "telegram",
         "destination_id": "1000",
@@ -41,7 +45,7 @@ def make_site_with_integration(client):
         "webhook_secret": "secret-abc",
         "enabled": True,
     })
-    return site_id
+    return site_id, integration_id
 
 
 def test_webhook_requires_secret_token():
@@ -91,18 +95,20 @@ def test_webhook_ignores_non_message_updates():
 
 def test_webhook_delivers_reply_to_live_visitor():
     with TestClient(main.app) as client:
-        site_id = make_site_with_integration(client)
+        site_id, integration_id = make_site_with_integration(client)
         with client.websocket_connect(
             f"/ws/visitor/{site_id}",
             headers={"origin": "https://example.test"},
         ) as visitor:
             visitor.send_text(json.dumps({
                 "type": "visitor.connected",
-                "visitor_id": "v-live",
+                "visitor_token": sign_visitor_token(site_id, "v-live"),
             }))
-            # Get the conversation_id assigned to this visitor.
-            conv = storage.get_or_create_conversation(site_id, "v-live")
-            storage.update_conversation_thread(conv["conversation_id"], "42")
+            # Get the conversation_id assigned to this visitor and bind the thread.
+            conv = storage.get_or_create_conversation(site_id, "v-live", integration_id)
+            storage.update_conversation_integration_ref(
+                conv["conversation_id"], integration_id, "42"
+            )
 
             r = client.post(
                 "/v1/telegram/webhook",
@@ -122,15 +128,40 @@ def test_webhook_delivers_reply_to_live_visitor():
             assert event["message"] == "Sure, email me."
 
 
+def test_webhook_ignores_retried_update_id():
+    with TestClient(main.app) as client:
+        site_id, integration_id = make_site_with_integration(client)
+        conv = storage.get_or_create_conversation(site_id, "v-retry", integration_id)
+        storage.update_conversation_integration_ref(
+            conv["conversation_id"], integration_id, "9"
+        )
+        payload = {
+            "update_id": 77,
+            "message": {"message_thread_id": 9, "text": "once"},
+        }
+        headers = {"X-Telegram-Bot-Api-Secret-Token": "secret-abc"}
+
+        r1 = client.post("/v1/telegram/webhook", json=payload, headers=headers)
+        assert r1.status_code == 200
+        assert storage.pending_replies(conv["conversation_id"]) != []
+
+        # Telegram retries the same update_id after no ack -> must be a no-op.
+        r2 = client.post("/v1/telegram/webhook", json=payload, headers=headers)
+        assert r2.status_code == 200
+        assert len(storage.pending_replies(conv["conversation_id"])) == 1
+
+
 def test_webhook_enqueues_reply_when_visitor_offline_then_delivers(monkeypatch):
     monkeypatch.setenv(
         "ENCRYPTION_KEY",
         "M0gU7ZvT1wQ2fVz1rT2gB3jZ4lH5kL6mN7oP8qR9sT0=",
     )
     with TestClient(main.app) as client:
-        site_id = make_site_with_integration(client)
-        conv = storage.get_or_create_conversation(site_id, "v-offline")
-        storage.update_conversation_thread(conv["conversation_id"], "7")
+        site_id, integration_id = make_site_with_integration(client)
+        conv = storage.get_or_create_conversation(site_id, "v-offline", integration_id)
+        storage.update_conversation_integration_ref(
+            conv["conversation_id"], integration_id, "7"
+        )
 
         # owner replies while visitor is offline
         r = client.post(
@@ -151,7 +182,7 @@ def test_webhook_enqueues_reply_when_visitor_offline_then_delivers(monkeypatch):
         ) as visitor:
             visitor.send_text(json.dumps({
                 "type": "visitor.connected",
-                "visitor_id": "v-offline",
+                "visitor_token": sign_visitor_token(site_id, "v-offline"),
             }))
             event = json.loads(visitor.receive_text())
             assert event["type"] == "owner.message"

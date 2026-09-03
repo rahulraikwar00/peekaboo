@@ -24,6 +24,14 @@ OPERATOR_TOKEN_BYTES = 48
 CONVERSATION_ID_BYTES = 24
 INTEGRATION_ID_BYTES = 16
 
+# Secret used to sign short-lived visitor subscription tokens. If unset, it is
+# derived deterministically from ENCRYPTION_KEY so self-hosted deploys get a
+# stable secret without extra configuration.
+SIGNING_SECRET = os.getenv("WIDGET_SIGNING_SECRET") or (
+    (os.getenv("ENCRYPTION_KEY") or "").strip().encode()
+)
+VISITOR_TOKEN_TTL_SECONDS = int(os.getenv("VISITOR_TOKEN_TTL_SECONDS", "900"))
+
 logger = logging.getLogger("peekaboo")
 logging.basicConfig(
     level=logging.INFO,

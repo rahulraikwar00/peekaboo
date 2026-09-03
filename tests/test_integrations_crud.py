@@ -74,7 +74,7 @@ def test_create_list_delete_integration(monkeypatch):
         assert "token" not in rows[0]
 
         # Stored credential is the ciphertext, not the plaintext token.
-        import server.state as _s; import json as _j; print("DBG keys:", list(_s.integrations.keys()), _j.dumps(_s.integrations)[:300]); print("DBG site_id:", site_id, "integration_id:", integration_id); stored = main.integrations[site_id][integration_id]
+        stored = main.integrations[site_id][integration_id]
         assert stored["credentials"] != "TELEGRAM-TOKEN"
 
         deleted = client.delete(

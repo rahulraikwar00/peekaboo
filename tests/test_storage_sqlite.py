@@ -60,21 +60,29 @@ def test_integration_lifecycle(store):
 
 
 def test_conversation_get_or_create(store):
-    conv = store.get_or_create_conversation("s1", "visitor-1")
+    conv = store.get_or_create_conversation("s1", "visitor-1", "int-1")
     assert conv["visitor_id"] == "visitor-1"
-    again = store.get_or_create_conversation("s1", "visitor-1")
+    again = store.get_or_create_conversation("s1", "visitor-1", "int-1")
     assert again["conversation_id"] == conv["conversation_id"]
 
 
 def test_conversation_thread_mapping(store):
-    conv = store.get_or_create_conversation("s1", "visitor-1")
-    store.update_conversation_thread(conv["conversation_id"], "thread-9")
-    found = store.get_conversation_by_thread("s1", "thread-9")
+    conv = store.get_or_create_conversation("s1", "visitor-1", "int-1")
+    store.update_conversation_integration_ref(conv["conversation_id"], "int-1", "thread-9")
+    found = store.get_conversation_by_integration_thread("s1", "int-1", "thread-9")
     assert found["conversation_id"] == conv["conversation_id"]
+    # A different integration sharing the same thread id must not match.
+    assert store.get_conversation_by_integration_thread("s1", "int-2", "thread-9") is None
+
+
+def test_webhook_update_dedup(store):
+    assert store.webhook_update_seen("100") is False
+    assert store.webhook_update_seen("100") is True
+    assert store.webhook_update_seen("101") is False
 
 
 def test_pending_reply_enqueue_deliver_purge(store):
-    conv = store.get_or_create_conversation("s1", "visitor-1")["conversation_id"]
+    conv = store.get_or_create_conversation("s1", "visitor-1", "int-1")["conversation_id"]
     store.enqueue_reply(conv, "reply one")
     store.enqueue_reply(conv, "reply two")
     replies = store.pending_replies(conv)

@@ -2,7 +2,7 @@ import json
 
 import httpx
 
-from server.integrations.base import IntegrationAdapter
+from server.integrations.base import ConversationRef, IntegrationAdapter
 from server.services import storage
 from server.services.crypto import decrypt_credentials
 
@@ -52,7 +52,7 @@ class TelegramAdapter(IntegrationAdapter):
         return payload.get("result") or {}
 
     async def _create_thread(self, event: dict) -> str | None:
-        """Create a per-conversation forum topic and persist the thread id."""
+        """Create a per-conversation forum topic and return the thread id."""
         chat_id = self.integration["destination_id"]
         title = event.get("visitor_name") or "New conversation"
         try:
@@ -65,16 +65,19 @@ class TelegramAdapter(IntegrationAdapter):
             return None
         return result.get("message_thread_id")
 
-    async def deliver(self, event: dict, conversation: dict) -> bool:
+    async def deliver(self, event: dict, conversation: dict) -> ConversationRef | None:
+        integration_id = self.integration.get("integration_id")
         chat_id = self.integration["destination_id"]
-        thread_id = conversation.get("telegram_thread_id")
         text = format_telegram_message(event)
+
+        conversation_id = conversation["conversation_id"]
+        thread_id = conversation.get("telegram_thread_id")
 
         if not thread_id:
             thread_id = await self._create_thread(event)
             if thread_id:
-                storage.update_conversation_thread(
-                    conversation["conversation_id"], str(thread_id)
+                storage.update_conversation_integration_ref(
+                    conversation_id, integration_id, thread_id
                 )
 
         params = {
@@ -87,5 +90,13 @@ class TelegramAdapter(IntegrationAdapter):
         try:
             await self._request("sendMessage", **params)
         except Exception:
-            return False
-        return True
+            return None
+
+        return ConversationRef(
+            site_id=self.integration["site_id"],
+            conversation_id=conversation_id,
+            integration_id=integration_id,
+            provider=self.provider,
+            destination_id=chat_id,
+            thread_id=str(thread_id or ""),
+        )

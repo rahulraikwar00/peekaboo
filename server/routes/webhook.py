@@ -38,6 +38,11 @@ async def telegram_webhook(request: Request):
     except json.JSONDecodeError:
         return PlainTextResponse("Bad request", status_code=400)
 
+    # Dedup webhook retries (Telegram redelivers until you ack 'ok').
+    update_id = update.get("update_id")
+    if update_id is not None and storage.webhook_update_seen(update_id):
+        return PlainTextResponse("ok")
+
     reply = _extract_reply(update)
     if reply is None:
         # e.g. non-message updates (edited, channel_post, callback) — acknowledge.
@@ -45,7 +50,10 @@ async def telegram_webhook(request: Request):
 
     thread_id, text = reply
     site_id = integration["site_id"]
-    conversation = storage.get_conversation_by_thread(site_id, str(thread_id))
+    integration_id = integration["integration_id"]
+    conversation = storage.get_conversation_by_integration_thread(
+        site_id, integration_id, thread_id
+    )
     if not conversation:
         # Reply to a thread we don't manage — ignore to prevent routing abuse.
         return PlainTextResponse("Unknown thread", status_code=200)

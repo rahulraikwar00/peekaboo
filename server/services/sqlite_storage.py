@@ -48,9 +48,15 @@ CREATE TABLE IF NOT EXISTS conversations (
   conversation_id TEXT PRIMARY KEY,
   site_id TEXT NOT NULL,
   visitor_id TEXT,
+  integration_id TEXT,
+  telegram_chat_id TEXT,
   telegram_thread_id TEXT,
   created_at TEXT,
   last_activity_at TEXT
+);
+CREATE TABLE IF NOT EXISTS telegram_updates (
+  update_id TEXT PRIMARY KEY,
+  received_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS site_stats (
   site_id TEXT PRIMARY KEY,
@@ -65,7 +71,7 @@ CREATE TABLE IF NOT EXISTS pending_replies (
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_site ON conversations(site_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_thread ON conversations(telegram_thread_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_thread ON conversations(integration_id, telegram_thread_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_visitor ON conversations(visitor_id);
 CREATE INDEX IF NOT EXISTS idx_integrations_site ON integrations(site_id);
 CREATE INDEX IF NOT EXISTS idx_pending_replies_conv ON pending_replies(conversation_id);
@@ -320,19 +326,20 @@ class SqliteStorage(Storage):
             finally:
                 conn.close()
 
-    def get_conversation_by_thread(self, site_id, thread_id):
+    def get_conversation_by_integration_thread(self, site_id, integration_id, thread_id):
         with self._lock:
             conn = _conn(self.db_path)
             try:
                 row = conn.execute(
-                    "SELECT * FROM conversations WHERE site_id=? AND telegram_thread_id=?",
-                    (site_id, thread_id),
+                    "SELECT * FROM conversations WHERE site_id=? AND integration_id=? "
+                    "AND telegram_thread_id=?",
+                    (site_id, integration_id, str(thread_id)),
                 ).fetchone()
                 return self._conversation_dict(row) if row else None
             finally:
                 conn.close()
 
-    def get_or_create_conversation(self, site_id, visitor_id):
+    def get_or_create_conversation(self, site_id, visitor_id, integration_id):
         with self._lock:
             conn = _conn(self.db_path)
             try:
@@ -344,17 +351,18 @@ class SqliteStorage(Storage):
                 if row:
                     conv = self._conversation_dict(row)
                     conn.execute(
-                        "UPDATE conversations SET last_activity_at=datetime('now') "
+                        "UPDATE conversations SET integration_id=?, last_activity_at=datetime('now') "
                         "WHERE conversation_id=?",
-                        (conv["conversation_id"],),
+                        (integration_id, conv["conversation_id"]),
                     )
                     conn.commit()
+                    conv["integration_id"] = integration_id
                     return conv
                 conversation_id = "conv_" + secrets.token_urlsafe(CONVERSATION_ID_BYTES)
                 conn.execute(
-                    "INSERT INTO conversations(conversation_id, site_id, visitor_id, "
-                    "created_at, last_activity_at) VALUES (?,?,?,datetime('now'),datetime('now'))",
-                    (conversation_id, site_id, visitor_id),
+                    "INSERT INTO conversations(conversation_id, site_id, visitor_id, integration_id, "
+                    "created_at, last_activity_at) VALUES (?,?,?,?,datetime('now'),datetime('now'))",
+                    (conversation_id, site_id, visitor_id, integration_id),
                 )
                 conn.commit()
                 return self._conversation_dict(
@@ -366,14 +374,15 @@ class SqliteStorage(Storage):
             finally:
                 conn.close()
 
-    def update_conversation_thread(self, conversation_id, thread_id):
+    def update_conversation_integration_ref(self, conversation_id, integration_id, thread_id):
         with self._lock:
             conn = _conn(self.db_path)
             try:
                 conn.execute(
-                    "UPDATE conversations SET telegram_thread_id=?, last_activity_at=datetime('now') "
-                    "WHERE conversation_id=?",
-                    (thread_id, conversation_id),
+                    "UPDATE conversations SET integration_id=?, telegram_thread_id=?, "
+                    "telegram_chat_id=?, last_activity_at=datetime('now') WHERE conversation_id=?",
+                    (integration_id, str(thread_id) if thread_id is not None else None,
+                     None, conversation_id),
                 )
                 conn.commit()
             finally:
@@ -390,6 +399,26 @@ class SqliteStorage(Storage):
                 )
                 conn.commit()
                 return conversation_id
+            finally:
+                conn.close()
+
+    # --- telegram update dedup ---
+    def webhook_update_seen(self, update_id) -> bool:
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                key = str(update_id)
+                row = conn.execute(
+                    "SELECT 1 FROM telegram_updates WHERE update_id=?", (key,)
+                ).fetchone()
+                if row:
+                    return True
+                conn.execute(
+                    "INSERT INTO telegram_updates(update_id, received_at) VALUES (?,datetime('now'))",
+                    (key,),
+                )
+                conn.commit()
+                return False
             finally:
                 conn.close()
 

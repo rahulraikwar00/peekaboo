@@ -29,6 +29,7 @@ from server.state import (
     site_creation_attempts,
     site_stats,
     sites,
+    telegram_updates,
     visitor_info,
     visitors,
 )

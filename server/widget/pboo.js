@@ -43,6 +43,7 @@ function createWidget(siteId, markup, styles) {
   const input = root.querySelector("input");
   const sendButton = root.querySelector("form button");
   let socket;
+  let visitorToken = null;
 
   function addMessage(text, kind, includeTimestamp = true) {
     const message = document.createElement("div");
@@ -94,14 +95,15 @@ function createWidget(siteId, markup, styles) {
   }
 
   function connect() {
+    if (!visitorToken) return;
+    if (socket && socket.readyState === WebSocket.OPEN) return;
     socket = new WebSocket(`${socketUrl}/ws/visitor/${siteId}`);
     socket.onopen = () => {
       status.textContent = "Connecting...";
       socket.send(
         JSON.stringify({
           type: "visitor.connected",
-          visitor_id: visitorId,
-          page: window.location.pathname,
+          visitor_token: visitorToken,
         }),
       );
     };
@@ -130,13 +132,53 @@ function createWidget(siteId, markup, styles) {
     };
     socket.onerror = () => {
       updateStatus("Connection unavailable", "default");
+      socket = null;
     };
     socket.onclose = () => {
-      updateStatus("Connecting...", "default");
       socket = null;
-      setTimeout(connect, 5000);
+      updateStatus("Connecting...", "default");
     };
   }
+
+  function sendMessage(text) {
+    const body = {
+      site_id: siteId,
+      visitor_id: visitorId,
+      message: text,
+      page: window.location.pathname,
+      referrer: document.referrer || "",
+    };
+    return fetch(`${serverUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((resp) => {
+        if (!resp.ok) throw new Error("send failed");
+        return resp.json();
+      })
+      .then((data) => {
+        // Reconnect with a fresh signed token once any previous one has expired.
+        visitorToken = data.visitor_token || visitorToken;
+        if (data.visitor_token && (!socket || socket.readyState !== WebSocket.OPEN)) {
+          connect();
+        }
+      });
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    sendMessage(text)
+      .then(() => {
+        addMessage(text, "visitor", true);
+        input.value = "";
+      })
+      .catch(() => {
+        updateStatus("Failed to send — try again", "default");
+      });
+  });
 
   launcher.addEventListener("click", () => {
     const isOpen = panel.classList.toggle("open");
@@ -145,17 +187,7 @@ function createWidget(siteId, markup, styles) {
     if (isOpen) input.focus();
   });
 
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const text = input.value.trim();
-    if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(text);
-    addMessage(text, "visitor", true);
-    input.value = "";
-  });
-
-  sendButton.disabled = true;
-  connect();
+  sendButton.disabled = false;
 }
 
 function getVisitorId() {

@@ -16,6 +16,7 @@ from server.services.ratelimit import (
     MSG_SITE_WINDOW,
     MSG_VISITOR_WINDOW,
 )
+from server.services.signing import sign_visitor_token
 from server.state import limiter
 
 router = APIRouter()
@@ -101,7 +102,12 @@ async def receive_message(request: Request):
     # Never echo message content back; only status.
     if result["delivered"] == 0 and result["failed"] > 0:
         return JSONResponse({"ok": False, "error": "delivery_failed"}, status_code=502)
-    return JSONResponse({"ok": True})
+    visitor_token = sign_visitor_token(payload.site_id, visitor_key)
+    return JSONResponse({
+        "ok": True,
+        "visitor_token": visitor_token,
+        "subscribe_path": f"/ws/visitor/{payload.site_id}",
+    })
 
 
 @router.get("/v1/widget/config/{site_id}")

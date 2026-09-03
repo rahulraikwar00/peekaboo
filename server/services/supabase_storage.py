@@ -139,18 +139,19 @@ class SupabaseStorage(Storage):
         )
         return result.data[0] if result.data else None
 
-    def get_conversation_by_thread(self, site_id, thread_id):
+    def get_conversation_by_integration_thread(self, site_id, integration_id, thread_id):
         result = (
             self.db.table("conversations")
             .select("*")
             .eq("site_id", site_id)
-            .eq("telegram_thread_id", thread_id)
+            .eq("integration_id", integration_id)
+            .eq("telegram_thread_id", str(thread_id))
             .limit(1)
             .execute()
         )
         return result.data[0] if result.data else None
 
-    def get_or_create_conversation(self, site_id, visitor_id):
+    def get_or_create_conversation(self, site_id, visitor_id, integration_id):
         result = (
             self.db.table("conversations")
             .select("*")
@@ -163,14 +164,34 @@ class SupabaseStorage(Storage):
         if result.data:
             conv = result.data[0]
             self.db.table("conversations").update(
-                {"last_activity_at": "now()"}
+                {"last_activity_at": "now()", "integration_id": integration_id}
             ).eq("conversation_id", conv["conversation_id"]).execute()
+            conv["integration_id"] = integration_id
             return conv
-        return None
+        conversation_id = "conv_" + secrets.token_urlsafe(16)
+        self.db.table("conversations").insert(
+            {
+                "conversation_id": conversation_id,
+                "site_id": site_id,
+                "visitor_id": visitor_id,
+                "integration_id": integration_id,
+                "last_activity_at": "now()",
+            }
+        ).execute()
+        return {
+            "conversation_id": conversation_id,
+            "site_id": site_id,
+            "visitor_id": visitor_id,
+            "integration_id": integration_id,
+        }
 
-    def update_conversation_thread(self, conversation_id, thread_id):
+    def update_conversation_integration_ref(self, conversation_id, integration_id, thread_id):
         self.db.table("conversations").update(
-            {"telegram_thread_id": thread_id}
+            {
+                "integration_id": integration_id,
+                "telegram_thread_id": str(thread_id) if thread_id is not None else None,
+                "last_activity_at": "now()",
+            }
         ).eq("conversation_id", conversation_id).execute()
 
     def create_conversation(self, conversation_id, site_id, visitor_id):
@@ -182,6 +203,26 @@ class SupabaseStorage(Storage):
             }
         ).execute()
         return conversation_id
+
+    # --- telegram update dedup ---
+    def webhook_update_seen(self, update_id) -> bool:
+        key = str(update_id)
+        result = (
+            self.db.table("telegram_updates")
+            .select("update_id")
+            .eq("update_id", key)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return True
+        try:
+            self.db.table("telegram_updates").insert(
+                {"update_id": key, "received_at": "now()"}
+            ).execute()
+        except Exception:
+            return True  # concurrent insert: another worker already processed it
+        return False
 
     # --- pending replies ---
     def enqueue_reply(self, conversation_id, reply):

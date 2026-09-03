@@ -31,6 +31,9 @@ pending_replies = {}
 # site_id -> privacy-safe counters
 site_stats = {}
 
+# telegram update_id -> receipt timestamp (dedup webhook retries)
+telegram_updates = {}
+
 # per-key sliding-window rate limiter (in-process)
 from server.services.ratelimit import SlidingWindowLimiter  # noqa: E402
 limiter = SlidingWindowLimiter()

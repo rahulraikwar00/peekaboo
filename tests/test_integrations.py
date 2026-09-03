@@ -67,6 +67,8 @@ def test_telegram_adapter_creates_thread_then_sends(monkeypatch):
 
     client = FakeClient()
     integration = {
+        "integration_id": "int_1",
+        "site_id": "site_1",
         "provider": "telegram",
         "destination_id": "12345",
         "credentials": encrypt_credentials("TOKEN:secret"),
@@ -74,11 +76,13 @@ def test_telegram_adapter_creates_thread_then_sends(monkeypatch):
     adapter = TelegramAdapter(integration, client=client)
     conversation = {"conversation_id": "conv_1", "telegram_thread_id": None}
 
-    ok = _run(adapter.deliver(
+    ref = _run(adapter.deliver(
         {"message": "hello", "visitor_name": "Ann"},
         conversation,
     ))
-    assert ok is True
+    assert ref is not None
+    assert ref.conversation_id == "conv_1"
+    assert ref.thread_id == "42"
     methods = [url.rsplit("/", 1)[-1] for url, _ in client.requests]
     assert methods == ["createForumTopic", "sendMessage"]
     send = client.requests[1][1]
@@ -96,6 +100,8 @@ def test_telegram_adapter_reuses_existing_thread(monkeypatch):
 
     client = FakeClient()
     integration = {
+        "integration_id": "int_1",
+        "site_id": "site_1",
         "provider": "telegram",
         "destination_id": "12345",
         "credentials": encrypt_credentials("TOKEN:secret"),
@@ -103,8 +109,9 @@ def test_telegram_adapter_reuses_existing_thread(monkeypatch):
     adapter = TelegramAdapter(integration, client=client)
     conversation = {"conversation_id": "conv_1", "telegram_thread_id": "7"}
 
-    ok = _run(adapter.deliver({"message": "hi"}, conversation))
-    assert ok is True
+    ref = _run(adapter.deliver({"message": "hi"}, conversation))
+    assert ref is not None
+    assert ref.thread_id == "7"
     methods = [url.rsplit("/", 1)[-1] for url, _ in client.requests]
     assert methods == ["sendMessage"]
     assert client.requests[0][1]["message_thread_id"] == "7"

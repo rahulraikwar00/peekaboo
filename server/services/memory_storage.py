@@ -3,7 +3,15 @@ from datetime import datetime, timezone
 
 from server.config import CONVERSATION_ID_BYTES
 from server.services.base_storage import Storage
-from server.state import conversations, integrations, owner_api_keys, pending_replies, sites, site_stats
+from server.state import (
+    conversations,
+    integrations,
+    owner_api_keys,
+    pending_replies,
+    sites,
+    site_stats,
+    telegram_updates,
+)
 
 
 def _now():
@@ -93,13 +101,17 @@ class MemoryStorage(Storage):
     def get_conversation(self, conversation_id):
         return conversations.get(conversation_id)
 
-    def get_conversation_by_thread(self, site_id, thread_id):
+    def get_conversation_by_integration_thread(self, site_id, integration_id, thread_id):
         for conv in conversations.values():
-            if conv.get("site_id") == site_id and conv.get("telegram_thread_id") == thread_id:
+            if (
+                conv.get("site_id") == site_id
+                and conv.get("integration_id") == integration_id
+                and conv.get("telegram_thread_id") == str(thread_id)
+            ):
                 return conv
         return None
 
-    def get_or_create_conversation(self, site_id, visitor_id):
+    def get_or_create_conversation(self, site_id, visitor_id, integration_id):
         for conv in conversations.values():
             if (
                 conv.get("site_id") == site_id
@@ -112,6 +124,8 @@ class MemoryStorage(Storage):
             "conversation_id": conversation_id,
             "site_id": site_id,
             "visitor_id": visitor_id,
+            "integration_id": integration_id,
+            "telegram_chat_id": None,
             "telegram_thread_id": None,
             "created_at": _now(),
             "last_activity_at": _now(),
@@ -119,21 +133,32 @@ class MemoryStorage(Storage):
         conversations[conversation_id] = conv
         return conv
 
-    def update_conversation_thread(self, conversation_id, thread_id):
+    def update_conversation_integration_ref(self, conversation_id, integration_id, thread_id):
         conv = conversations.get(conversation_id)
         if conv:
-            conv["telegram_thread_id"] = thread_id
+            conv["integration_id"] = integration_id
+            conv["telegram_thread_id"] = str(thread_id) if thread_id is not None else None
 
     def create_conversation(self, conversation_id, site_id, visitor_id=None):
         conversations[conversation_id] = {
             "conversation_id": conversation_id,
             "site_id": site_id,
             "visitor_id": visitor_id,
+            "integration_id": None,
+            "telegram_chat_id": None,
             "telegram_thread_id": None,
             "created_at": _now(),
             "last_activity_at": _now(),
         }
         return conversation_id
+
+    # --- telegram update dedup ---
+    def webhook_update_seen(self, update_id) -> bool:
+        key = str(update_id)
+        if key in telegram_updates:
+            return True
+        telegram_updates[key] = _now()
+        return False
 
     # --- pending replies ---
     def enqueue_reply(self, conversation_id, reply):

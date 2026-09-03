@@ -73,20 +73,29 @@ class Storage(ABC):
         ...
 
     @abstractmethod
-    def get_conversation_by_thread(self, site_id, thread_id):
-        ...
+    def get_conversation_by_integration_thread(self, site_id, integration_id, thread_id):
+        """Find the conversation bound to (integration_id, thread_id), else None."""
 
     @abstractmethod
-    def get_or_create_conversation(self, site_id, visitor_id) -> dict:
-        """Return an existing (most recent) conversation for the visitor or create one."""
+    def get_or_create_conversation(self, site_id, visitor_id, integration_id) -> dict:
+        """Return an existing (most recent) conversation for the visitor or create one.
+
+        integration_id binds the conversation to the facing integration so its
+        internal conversation handle (thread/topic/root message) routes correctly.
+        """
 
     @abstractmethod
-    def update_conversation_thread(self, conversation_id, thread_id):
-        ...
+    def update_conversation_integration_ref(self, conversation_id, integration_id, thread_id):
+        """Record the integration-bound handle (e.g. Telegram thread id) for a conversation."""
 
     @abstractmethod
     def create_conversation(self, conversation_id, site_id, visitor_id) -> str:
         ...
+
+    # --- telegram update dedup ---
+    @abstractmethod
+    def webhook_update_seen(self, update_id) -> bool:
+        """Return True if this Telegram update_id was already processed (dedup for retries)."""
 
     # --- pending replies ---
     @abstractmethod

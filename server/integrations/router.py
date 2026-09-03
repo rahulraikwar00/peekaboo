@@ -22,11 +22,6 @@ async def deliver_to_site(site_id: str, event: dict, visitor_id: str) -> dict:
     failed = 0
     conversation = None
 
-    # Conversation is shared across integrations for a site/visitor so the
-    # thread-per-conversation identity is consistent.
-    conversation = storage.get_or_create_conversation(site_id, visitor_id)
-    event["conversation_id"] = conversation["conversation_id"]
-
     async with httpx.AsyncClient() as client:
         for record in integrations:
             if not record.get("enabled", True):
@@ -35,14 +30,26 @@ async def deliver_to_site(site_id: str, event: dict, visitor_id: str) -> dict:
             if adapter is None:
                 continue
             adapter._client = client
+            integration_id = record.get("integration_id")
+
+            # One conversation per site/visitor, bound to the facing integration so
+            # its internal handle (Telegram thread) routes replies back correctly.
+            conversation = storage.get_or_create_conversation(
+                site_id, visitor_id, integration_id
+            )
+            event["conversation_id"] = conversation["conversation_id"]
+
             try:
-                ok = await adapter.deliver(event, conversation)
+                ref = await adapter.deliver(event, conversation)
             except Exception:
-                ok = False
-            if ok:
+                ref = None
+            if ref is not None:
                 delivered += 1
             else:
                 failed += 1
+
+    if conversation is None:
+        conversation = storage.get_or_create_conversation(site_id, visitor_id, None)
 
     return {
         "delivered": delivered,
