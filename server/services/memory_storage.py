@@ -90,6 +90,14 @@ class MemoryStorage(Storage):
         integrations.setdefault(record["site_id"], {})[integration_id] = dict(record)
         return integration_id
 
+    def update_integration(self, site_id, integration_id, fields) -> bool:
+        bucket = integrations.get(site_id, {})
+        record = bucket.get(integration_id)
+        if record is None:
+            return False
+        record.update(fields)
+        return True
+
     def delete_integration(self, site_id, integration_id) -> bool:
         bucket = integrations.get(site_id, {})
         if integration_id in bucket:

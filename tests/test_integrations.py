@@ -11,10 +11,12 @@ def test_format_telegram_message_with_context():
         "referrer": "https://twitter.com",
     }
     text = format_telegram_message(event)
-    assert "New website message" in text
-    assert "From: John" in text
-    assert "Page: /projects" in text
-    assert "Are you available for freelance work?" in text
+    # Only the visitor's raw text is shown in the body; the visitor's identity
+    # lives in the forum topic title, so no boilerplate header is emitted.
+    assert text == "Are you available for freelance work?"
+    assert "New website message" not in text
+    assert "From:" not in text
+    assert "Page:" not in text
 
 
 def test_format_telegram_message_minimal():

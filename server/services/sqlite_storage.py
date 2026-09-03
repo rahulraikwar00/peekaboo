@@ -313,6 +313,40 @@ class SqliteStorage(Storage):
             finally:
                 conn.close()
 
+    def update_integration(self, site_id, integration_id, fields) -> bool:
+        allowed = {
+            "destination_id",
+            "credentials",
+            "webhook_secret",
+            "enabled",
+            "config",
+        }
+        cols = [k for k in fields if k in allowed]
+        if not cols:
+            return False
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                assignments = ", ".join(f"{c}=?" for c in cols)
+                values = []
+                for c in cols:
+                    v = fields[c]
+                    if c == "enabled":
+                        v = 1 if v else 0
+                    elif c == "config" and v is not None:
+                        v = json.dumps(v)
+                    values.append(v)
+                values.extend([site_id, integration_id])
+                cur = conn.execute(
+                    f"UPDATE integrations SET {assignments}, "
+                    f"updated_at=datetime('now') WHERE site_id=? AND id=?",
+                    values,
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+
     # --- conversations ---
     def get_conversation(self, conversation_id):
         with self._lock:

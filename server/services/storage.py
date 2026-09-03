@@ -104,6 +104,10 @@ def insert_integration(record) -> str:
     return get_storage().insert_integration(record)
 
 
+def update_integration(site_id, integration_id, fields) -> bool:
+    return get_storage().update_integration(site_id, integration_id, fields)
+
+
 def delete_integration(site_id, integration_id) -> bool:
     return get_storage().delete_integration(site_id, integration_id)
 

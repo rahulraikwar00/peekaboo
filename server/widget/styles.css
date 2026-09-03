@@ -263,6 +263,46 @@ header strong {
   border-color: rgba(200, 30, 30, 0.2);
 }
 
+/* Name Prompt (optional, first message) */
+[hidden] {
+  display: none !important;
+}
+
+.name-prompt {
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.name-prompt label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.name-prompt .name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.name-prompt .name-skip {
+  flex: none;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.name-prompt .name-skip:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+
 /* Input Form */
 form {
   display: flex;

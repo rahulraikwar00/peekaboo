@@ -6,7 +6,9 @@ const assetRoot = currentScript
 const serverUrl = assetRoot.origin;
 const socketUrl = serverUrl.replace(/^http/, "ws");
 const visitorIdKey = `peekaboo-visitor-${siteId}`;
+const visitorNameKey = `peekaboo-name-${siteId}`;
 const visitorId = getVisitorId();
+const storedName = localStorage.getItem(visitorNameKey);
 
 if (!siteId) {
   console.error("Peekaboo: data-site is missing");
@@ -40,10 +42,110 @@ function createWidget(siteId, markup, styles) {
   const status = root.querySelector(".status");
   const messages = root.querySelector(".messages");
   const form = root.querySelector("form");
-  const input = root.querySelector("input");
+  const input = root.querySelector("form input");
   const sendButton = root.querySelector("form button");
+  const namePrompt = root.querySelector(".name-prompt");
+  const nameInput = root.querySelector(".name-prompt input");
+  const nameSkip = root.querySelector(".name-prompt .name-skip");
   let socket;
   let visitorToken = null;
+  let visitorName = storedName || null;
+  let pendingMessage = null;
+
+  function showNamePrompt() {
+    namePrompt.hidden = false;
+    nameInput.focus();
+  }
+
+  function hideNamePrompt() {
+    namePrompt.hidden = true;
+  }
+
+  function sendMessage(text) {
+    const body = {
+      site_id: siteId,
+      visitor_id: visitorId,
+      message: text,
+      page: window.location.pathname,
+      referrer: document.referrer || "",
+    };
+    if (visitorName) body.visitor_name = visitorName;
+    return fetch(`${serverUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((resp) => {
+        if (!resp.ok) throw new Error("send failed");
+        return resp.json();
+      })
+      .then((data) => {
+        // Reconnect with a fresh signed token once any previous one has expired.
+        visitorToken = data.visitor_token || visitorToken;
+        if (data.visitor_token && (!socket || socket.readyState !== WebSocket.OPEN)) {
+          connect();
+        }
+      });
+  }
+
+  function flushPending() {
+    const text = pendingMessage;
+    pendingMessage = null;
+    if (!text) return;
+    sendMessage(text)
+      .then(() => {
+        addMessage(text, "visitor", true);
+        input.value = "";
+      })
+      .catch(() => {
+        updateStatus("Failed to send — try again", "default");
+      });
+  }
+
+  function resolveName(name) {
+    const cleaned = (name || "").trim();
+    if (cleaned) {
+      visitorName = cleaned;
+      localStorage.setItem(visitorNameKey, cleaned);
+    } else {
+      visitorName = null;
+      localStorage.setItem(visitorNameKey, "");
+    }
+    hideNamePrompt();
+    flushPending();
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+
+    if (visitorName === null && pendingMessage === null) {
+      // First message: ask for an optional name once (non-blocking when skipping).
+      pendingMessage = text;
+      showNamePrompt();
+      return;
+    }
+    sendMessage(text)
+      .then(() => {
+        addMessage(text, "visitor", true);
+        input.value = "";
+      })
+      .catch(() => {
+        updateStatus("Failed to send — try again", "default");
+      });
+  });
+
+  nameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      resolveName(nameInput.value);
+    }
+  });
+
+  nameSkip.addEventListener("click", () => {
+    resolveName("");
+  });
 
   function addMessage(text, kind, includeTimestamp = true) {
     const message = document.createElement("div");

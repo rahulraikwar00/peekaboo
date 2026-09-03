@@ -64,6 +64,10 @@ class Storage(ABC):
         """Insert and return the integration id."""
 
     @abstractmethod
+    def update_integration(self, site_id, integration_id, fields) -> bool:
+        """Update a subset of fields on an existing integration."""
+
+    @abstractmethod
     def delete_integration(self, site_id, integration_id) -> bool:
         ...
 

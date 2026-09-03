@@ -124,6 +124,16 @@ class SupabaseStorage(Storage):
         ).execute()
         return integration_id
 
+    def update_integration(self, site_id, integration_id, fields) -> bool:
+        result = (
+            self.db.table("integrations")
+            .update(fields)
+            .eq("site_id", site_id)
+            .eq("id", integration_id)
+            .execute()
+        )
+        return bool(result.data)
+
     def delete_integration(self, site_id, integration_id) -> bool:
         result = (
             self.db.table("integrations")

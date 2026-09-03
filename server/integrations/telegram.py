@@ -11,20 +11,7 @@ TELEGRAM_API = "https://api.telegram.org"
 
 def format_telegram_message(event: dict) -> str:
     """Build the Telegram notification body from a normalized message event."""
-    lines = ["💬 New website message"]
-    name = event.get("visitor_name")
-    if name:
-        lines.append(f"From: {name}")
-    page = event.get("page")
-    if page:
-        lines.append(f"Page: {page}")
-    referrer = event.get("referrer")
-    if referrer:
-        lines.append(f"Referrer: {referrer}")
-    lines.append("")
-    message = event.get("message", "")
-    lines.append(f'"{message}"')
-    return "\n".join(lines)
+    return event.get("message", "").strip()
 
 
 class TelegramAdapter(IntegrationAdapter):
@@ -87,11 +74,17 @@ class TelegramAdapter(IntegrationAdapter):
         thread_id = conversation.get("telegram_thread_id")
 
         if not thread_id:
+            # A conversation must be anchored to a forum topic so the owner can
+            # reply in-thread and have the reply route back to the visitor.
+            # If we can't create one (not a forum, missing permission, etc.),
+            # do NOT fall back to a threadless message in the group -- that
+            # produces stray, unroutable messages. Fail the delivery instead.
             thread_id = await self._create_thread(event)
-            if thread_id:
-                storage.update_conversation_integration_ref(
-                    conversation_id, integration_id, thread_id
-                )
+            if not thread_id:
+                return None
+            storage.update_conversation_integration_ref(
+                conversation_id, integration_id, thread_id
+            )
 
         params = {
             "chat_id": chat_id,

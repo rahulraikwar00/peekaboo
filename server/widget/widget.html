@@ -17,6 +17,17 @@
   <div class="messages" aria-live="polite">
     <div class="message owner">Hi! How can we help?</div>
   </div>
+  <div class="name-prompt" hidden>
+    <label for="pboo-name">Your name (optional)</label>
+    <div class="name-row">
+      <input
+        id="pboo-name"
+        aria-label="Your name"
+        placeholder="e.g. Rahul"
+        maxlength="64"
+      /><button type="button" class="name-skip">Skip</button>
+    </div>
+  </div>
   <form>
     <input
       aria-label="Message"
