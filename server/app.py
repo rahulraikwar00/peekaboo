@@ -6,6 +6,7 @@ from fastapi.requests import Request
 from server.config import SITE_ROOT, WIDGET_ROOT
 from server.routes import (
     auth,
+    cli_files,
     core,
     install,
     integrations_crud,
@@ -30,6 +31,7 @@ def create_app():
     for router in (
         core.router,
         install.router,
+        cli_files.router,
         auth.router,
         sites.router,
         messages.router,
