@@ -52,6 +52,10 @@ class MemoryStorage(Storage):
         stat["messages_received"] = stat.get("messages_received", 0) + 1
         stat["last_message_at"] = _now()
 
+    def increment_replies_sent(self, site_id):
+        stat = site_stats.setdefault(site_id, {})
+        stat["replies_sent"] = stat.get("replies_sent", 0) + 1
+
     def stats(self, site_id):
         return site_stats.get(site_id, {
             "messages_received": 0, "replies_sent": 0, "last_message_at": None,
@@ -63,6 +67,13 @@ class MemoryStorage(Storage):
 
     def get_integration(self, site_id, integration_id):
         return integrations.get(site_id, {}).get(integration_id)
+
+    def find_integration_by_webhook_secret(self, secret):
+        for site_bucket in integrations.values():
+            for record in site_bucket.values():
+                if record.get("webhook_secret") == secret:
+                    return record
+        return None
 
     def insert_integration(self, record) -> str:
         integration_id = "itg_" + secrets.token_urlsafe(16)

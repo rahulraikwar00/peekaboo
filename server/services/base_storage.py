@@ -42,6 +42,10 @@ class Storage(ABC):
     def increment_messages_received(self, site_id):
         ...
 
+    @abstractmethod
+    def increment_replies_sent(self, site_id):
+        ...
+
     # --- integrations ---
     @abstractmethod
     def list_integrations(self, site_id):
@@ -49,6 +53,10 @@ class Storage(ABC):
 
     @abstractmethod
     def get_integration(self, site_id, integration_id):
+        ...
+
+    @abstractmethod
+    def find_integration_by_webhook_secret(self, secret):
         ...
 
     @abstractmethod

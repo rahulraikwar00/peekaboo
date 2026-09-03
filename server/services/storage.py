@@ -77,6 +77,10 @@ def increment_messages_received(site_id):
     return get_storage().increment_messages_received(site_id)
 
 
+def increment_replies_sent(site_id):
+    return get_storage().increment_replies_sent(site_id)
+
+
 def get_site_stats(site_id):
     if hasattr(get_storage(), "stats"):
         return get_storage().stats(site_id)
@@ -90,6 +94,10 @@ def list_integrations(site_id):
 
 def get_integration(site_id, integration_id):
     return get_storage().get_integration(site_id, integration_id)
+
+
+def find_integration_by_webhook_secret(secret):
+    return get_storage().find_integration_by_webhook_secret(secret)
 
 
 def insert_integration(record) -> str:

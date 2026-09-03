@@ -1,13 +1,11 @@
 import hmac
 import json
-import secrets
 import time
 from collections import deque
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from server.config import (
-    CONVERSATION_ID_BYTES,
     MAX_MESSAGE_BYTES,
     MAX_MESSAGES_PER_WINDOW,
     MAX_VISITORS_PER_SITE,
@@ -16,11 +14,11 @@ from server.config import (
 from server.services.security import hash_token
 from server.services.domain import origin_allowed
 from server.services.storage import (
-    create_conversation,
+    delete_pending_reply,
+    get_or_create_conversation,
     get_site,
-    save_message,
+    pending_replies,
     site_exists,
-    update_conversation_visitor,
 )
 from server.state import operators, visitor_info, visitors
 
@@ -73,25 +71,15 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
 
     await websocket.accept()
 
-    conversation_id = secrets.token_urlsafe(CONVERSATION_ID_BYTES)
+    visitors.setdefault(site_id, set())
     visitors[site_id].add(websocket)
     visitor_info[websocket] = {
-        "conversation_id": conversation_id,
+        "conversation_id": None,
         "visitor_id": None,
         "messages": deque(),
     }
-    create_conversation(conversation_id, site_id)
 
     print(f"Visitor connected to {site_id}")
-    operator = operators.get(site_id)
-
-    if operator:
-        await operator.send_text(json.dumps({
-            "type": "visitor.connected",
-            "conversation_id": conversation_id,
-            "site_id": site_id,
-        }))
-        await broadcast_owner_status(site_id, online=True)
 
     try:
         while True:
@@ -103,7 +91,17 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
             if isinstance(event, dict) and event.get("type") == "visitor.connected":
                 visitor_id = event.get("visitor_id")
                 visitor_info[websocket]["visitor_id"] = visitor_id
-                update_conversation_visitor(conversation_id, visitor_id)
+                if visitor_id:
+                    conv = get_or_create_conversation(site_id, visitor_id)
+                    visitor_info[websocket]["conversation_id"] = conv["conversation_id"]
+                    # Deliver any replies the visitor missed while offline.
+                    for pr in pending_replies(conv["conversation_id"]):
+                        await websocket.send_text(json.dumps({
+                            "type": "owner.message",
+                            "message": pr["reply"],
+                            "pending": True,
+                        }))
+                        delete_pending_reply(pr["id"])
                 continue
             if len(message.encode("utf-8")) > MAX_MESSAGE_BYTES:
                 await websocket.close(code=1009)
@@ -117,7 +115,6 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
                 await websocket.close(code=1008)
                 return
             timestamps.append(now)
-            save_message(conversation_id, "visitor", message)
 
             print(f"Visitor [{site_id}]: {message!r}")
             operator = operators.get(site_id)
@@ -125,7 +122,7 @@ async def visitor_socket(websocket: WebSocket, site_id: str):
             if operator:
                 await operator.send_text(json.dumps({
                     "type": "visitor.message",
-                    "conversation_id": conversation_id,
+                    "conversation_id": visitor_info[websocket]["conversation_id"],
                     "message": message,
                 }))
 
@@ -174,7 +171,6 @@ async def operator_socket(websocket: WebSocket, site_id: str, token: str):
             ]
 
             print(f"Operator [{site_id}]: {reply!r}")
-            save_message(conversation_id, "operator", reply)
 
             for visitor in recipients:
                 try:

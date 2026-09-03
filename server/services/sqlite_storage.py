@@ -202,6 +202,20 @@ class SqliteStorage(Storage):
             finally:
                 conn.close()
 
+    def increment_replies_sent(self, site_id):
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                conn.execute(
+                    "INSERT INTO site_stats(site_id, replies_sent) "
+                    "VALUES (?,1) "
+                    "ON CONFLICT(site_id) DO UPDATE SET replies_sent=replies_sent+1",
+                    (site_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
     def stats(self, site_id):
         with self._lock:
             conn = _conn(self.db_path)
@@ -236,6 +250,18 @@ class SqliteStorage(Storage):
                 row = conn.execute(
                     "SELECT * FROM integrations WHERE site_id=? AND id=?",
                     (site_id, integration_id),
+                ).fetchone()
+                return self._integration_dict(row) if row else None
+            finally:
+                conn.close()
+
+    def find_integration_by_webhook_secret(self, secret):
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                row = conn.execute(
+                    "SELECT * FROM integrations WHERE webhook_secret=? LIMIT 1",
+                    (secret,),
                 ).fetchone()
                 return self._integration_dict(row) if row else None
             finally:

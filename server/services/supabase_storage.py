@@ -66,6 +66,9 @@ class SupabaseStorage(Storage):
     def increment_messages_received(self, site_id):
         self.db.rpc("increment_site_messages", {"p_site_id": site_id}).execute()
 
+    def increment_replies_sent(self, site_id):
+        self.db.rpc("increment_site_replies", {"p_site_id": site_id}).execute()
+
     # --- integrations ---
     def list_integrations(self, site_id):
         result = (
@@ -79,6 +82,16 @@ class SupabaseStorage(Storage):
             .select("*")
             .eq("site_id", site_id)
             .eq("id", integration_id)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    def find_integration_by_webhook_secret(self, secret):
+        result = (
+            self.db.table("integrations")
+            .select("*")
+            .eq("webhook_secret", secret)
             .limit(1)
             .execute()
         )
