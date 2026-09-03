@@ -1,27 +1,31 @@
 import json
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from server import main
+from server.services.signing import sign_visitor_token
 
 
 @pytest.fixture(autouse=True)
 def reset_state():
     main.sites.clear()
     main.visitors.clear()
-    main.operators.clear()
     main.visitor_info.clear()
     main.site_creation_attempts.clear()
     main.owner_api_keys.clear()
     main.pending_oauth.clear()
+    main.conversations.clear()
+    main.integrations.clear()
+    main.pending_replies.clear()
+    main.site_stats.clear()
+    main.telegram_updates.clear()
 
 
-def make_owner():
-    api_key = main.mint_owner_api_key("owner-test")
-    return {"owner_id": "owner-test", "api_key": api_key}
+def make_owner(owner_id="owner-test"):
+    api_key = main.mint_owner_api_key(owner_id)
+    return {"owner_id": owner_id, "api_key": api_key}
 
 
 def create_site(client, api_key=None, origin=None):
@@ -41,32 +45,26 @@ def test_generated_credentials_have_strong_entropy():
     with TestClient(main.app) as client:
         site = create_site(client)
         assert len(site["site_id"]) > 30
-        assert len(site["operator_token"]) > 60
 
 
 def test_invalid_operator_token_is_rejected():
+    # The operator websocket was retired in favor of the Telegram reply path; the
+    # legacy /ws/operator endpoint no longer exists.
     with TestClient(main.app) as client:
         site = create_site(client)
-        with pytest.raises(WebSocketDisconnect) as error:
+        with pytest.raises(WebSocketDisconnect):
             with client.websocket_connect(
                 f"/ws/operator/{site['site_id']}?token=forged",
             ):
                 pass
-        assert error.value.code == 1008
 
 
-def test_owner_status_reflects_listener_connection():
+def test_site_status_reflects_existence():
     with TestClient(main.app) as client:
         site = create_site(client)
         assert client.get(f"/sites/{site['site_id']}/status").json() == {
-            "operator_online": False
+            "exists": True
         }
-        with client.websocket_connect(
-            f"/ws/operator/{site['site_id']}?token={site['operator_token']}"
-        ):
-            assert client.get(f"/sites/{site['site_id']}/status").json() == {
-                "operator_online": True
-            }
 
 
 def test_visitor_requires_origin_and_valid_site():
@@ -107,62 +105,73 @@ def test_visitor_message_is_scoped_and_size_limited():
     with TestClient(main.app) as client:
         site = create_site(client, origin="https://example.test")
         with client.websocket_connect(
-            f"/ws/operator/{site['site_id']}?token={site['operator_token']}",
-        ) as operator:
-            with client.websocket_connect(
-                f"/ws/visitor/{site['site_id']}",
-                headers={"origin": "https://example.test"},
-            ) as visitor:
-                connected = json.loads(operator.receive_text())
-                conversation_id = connected["conversation_id"]
-                # Drain initial owner.status message
-                json.loads(visitor.receive_text())
-                visitor.send_text("<script>alert(1)</script>")
-                event = json.loads(operator.receive_text())
-                assert event["conversation_id"] == conversation_id
-                assert event["message"] == "<script>alert(1)</script>"
-                operator.send_text(f"/reply {conversation_id} private reply")
-                response = json.loads(visitor.receive_text())
-                assert response["message"] == "private reply"
-
-                visitor.send_text("x" * (main.MAX_MESSAGE_BYTES + 1))
-                with pytest.raises(WebSocketDisconnect) as error:
-                    visitor.receive_text()
-                assert error.value.code == 1009
+            f"/ws/visitor/{site['site_id']}",
+            headers={"origin": "https://example.test"},
+        ) as visitor:
+            visitor.send_text(json.dumps({
+                "type": "visitor.connected",
+                "visitor_token": sign_visitor_token(site["site_id"], "v-1"),
+            }))
+            # Right-sized visitor frame is fine.
+            visitor.send_text("hello")
+            # Oversized frame is rejected.
+            visitor.send_text("x" * (main.MAX_MESSAGE_BYTES + 1))
+            with pytest.raises(WebSocketDisconnect) as error:
+                visitor.receive_text()
+            assert error.value.code == 1009
 
 
-def test_operator_reply_does_not_cross_conversations():
+def test_visitor_cannot_connect_without_valid_signed_token():
     with TestClient(main.app) as client:
-        site = create_site(client, origin="https://example.test")
+        site_a = create_site(client, origin="https://example.test")
+        site_b = create_site(client, origin="https://example.test")
         with client.websocket_connect(
-            f"/ws/operator/{site['site_id']}?token={site['operator_token']}",
-        ) as operator:
-            with client.websocket_connect(
-                f"/ws/visitor/{site['site_id']}",
-                headers={"origin": "https://example.test"},
-            ) as first, client.websocket_connect(
-                f"/ws/visitor/{site['site_id']}",
-                headers={"origin": "https://example.test"},
-            ) as second:
-                first_id = json.loads(operator.receive_text())[
-                    "conversation_id"]
-                second_id = json.loads(operator.receive_text())[
-                    "conversation_id"]
-                # Drain initial owner.status messages
-                # first visitor gets 2 (one on connect, one when second connects)
-                # second visitor gets 1 (when it connects)
-                json.loads(first.receive_text())
-                json.loads(first.receive_text())
-                json.loads(second.receive_text())
-                operator.send_text(f"/reply {first_id} only first")
-                assert json.loads(first.receive_text())[
-                    "message"] == "only first"
-                executor = ThreadPoolExecutor(max_workers=1)
-                pending = executor.submit(second.receive_text)
-                with pytest.raises(FutureTimeoutError):
-                    pending.result(timeout=0.1)
-                executor.shutdown(wait=False, cancel_futures=True)
-                assert first_id != second_id
+            f"/ws/visitor/{site_a['site_id']}",
+            headers={"origin": "https://example.test"},
+        ) as visitor:
+            # A raw visitor_id (no token) must be rejected.
+            visitor.send_text(json.dumps({
+                "type": "visitor.connected",
+                "visitor_id": "attacker",
+            }))
+            with pytest.raises(WebSocketDisconnect) as error:
+                visitor.receive_text()
+            assert error.value.code == 1008
+
+        # A token minted for one site cannot be replayed against another site.
+        with client.websocket_connect(
+            f"/ws/visitor/{site_a['site_id']}",
+            headers={"origin": "https://example.test"},
+        ) as visitor:
+            visitor.send_text(json.dumps({
+                "type": "visitor.connected",
+                "visitor_token": sign_visitor_token(site_b["site_id"], "x"),
+            }))
+            with pytest.raises(WebSocketDisconnect) as error:
+                visitor.receive_text()
+            assert error.value.code == 1008
+
+
+def test_site_detail_requires_owner_and_returns_stats():
+    with TestClient(main.app) as client:
+        api_key = make_owner()["api_key"]
+        site = create_site(client, api_key)
+        # valid owner -> 200 with stats
+        r = client.get(f"/sites/{site['site_id']}", headers={"X-API-Key": api_key})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["site_id"] == site["site_id"]
+        assert "stats" in body
+        # no auth -> 401
+        assert client.get(f"/sites/{site['site_id']}").status_code == 401
+        # another owner -> 403
+        other_key = make_owner(owner_id="owner-other")["api_key"]
+        assert (
+            client.get(
+                f"/sites/{site['site_id']}", headers={"X-API-Key": other_key}
+            ).status_code
+            == 403
+        )
 
 
 def test_create_site_requires_valid_api_key():
@@ -274,6 +283,7 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
 
     fake_shared = FakeSupabase()
     fake_shared.auth = None
+    original = main.supabase
     main.supabase = fake_shared
     main.pending_oauth["state-1"] = {
         "code_verifier": "cv-123",
@@ -298,7 +308,8 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
         auth_routes, "create_client", lambda *a, **k: FakeThrowawayClient()
     )
     monkeypatch.setattr(
-        auth_routes, "mint_owner_api_key", lambda owner_id: "minted-key"
+        auth_routes, "mint_owner_api_key",
+        lambda owner_id, db_client=None: "minted-key",
     )
     monkeypatch.setattr(
         auth_routes, "get_supabase_client", lambda: fake_shared
@@ -312,3 +323,18 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
 
     assert response.status_code == 303
     assert main.pending_oauth["state-1"]["api_key"] == "minted-key"
+
+    try:
+        if "pending_oauth" in main.__dict__:
+            main.pending_oauth.clear()
+    finally:
+        main.supabase = original
+
+
+def test_secure_headers_on_html_response():
+    with TestClient(main.app) as client:
+        r = client.get("/")
+        assert r.headers.get("Strict-Transport-Security") == (
+            "max-age=63072000; includeSubDomains; preload"
+        )
+        assert r.headers.get("Content-Security-Policy") == "frame-ancestors 'none'"

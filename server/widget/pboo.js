@@ -6,7 +6,10 @@ const assetRoot = currentScript
 const serverUrl = assetRoot.origin;
 const socketUrl = serverUrl.replace(/^http/, "ws");
 const visitorIdKey = `peekaboo-visitor-${siteId}`;
+const visitorNameKey = `peekaboo-name-${siteId}`;
+const chatLogKey = `peekaboo-log-${siteId}`;
 const visitorId = getVisitorId();
+const storedName = localStorage.getItem(visitorNameKey);
 
 if (!siteId) {
   console.error("Peekaboo: data-site is missing");
@@ -40,9 +43,117 @@ function createWidget(siteId, markup, styles) {
   const status = root.querySelector(".status");
   const messages = root.querySelector(".messages");
   const form = root.querySelector("form");
-  const input = root.querySelector("input");
+  const input = root.querySelector("form input");
   const sendButton = root.querySelector("form button");
+  const namePrompt = root.querySelector(".name-prompt");
+  const nameInput = root.querySelector(".name-prompt input");
+  const nameSkip = root.querySelector(".name-prompt .name-skip");
   let socket;
+  let visitorToken = null;
+  let visitorName = storedName || null;
+  let pendingMessage = null;
+  const chatLog = loadChatLog();
+
+  function loadChatLog() {
+    try {
+      return JSON.parse(localStorage.getItem(chatLogKey) || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function saveChatLog() {
+    const entries = [];
+    messages.querySelectorAll(".message:not(.typing)").forEach((el) => {
+      const kind = el.classList.contains("visitor")
+        ? "visitor"
+        : el.classList.contains("owner")
+          ? "owner"
+          : null;
+      if (!kind) return;
+      entries.push({ kind, text: el.textContent.replace(/\d{2}:\d{2}$/, "").trim() });
+    });
+    localStorage.setItem(chatLogKey, JSON.stringify(entries));
+  }
+
+  function restoreChatLog() {
+    chatLog.forEach(({ kind, text }) => {
+      if (!text) return;
+      const el = document.createElement("div");
+      el.className = `message ${kind}`;
+      el.textContent = text;
+      messages.appendChild(el);
+    });
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function showNamePrompt() {
+    namePrompt.classList.add("open");
+    form.classList.add("locked");
+    input.disabled = true;
+    sendButton.disabled = true;
+    nameInput.focus();
+  }
+
+  function hideNamePrompt() {
+    namePrompt.classList.remove("open");
+    form.classList.remove("locked");
+    input.disabled = false;
+    sendButton.disabled = false;
+  }
+
+  function sendMessage(text) {
+    const body = {
+      site_id: siteId,
+      visitor_id: visitorId,
+      message: text,
+      page: window.location.pathname,
+      referrer: document.referrer || "",
+    };
+    if (visitorName) body.visitor_name = visitorName;
+    return fetch(`${serverUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((resp) => {
+        if (!resp.ok) throw new Error("send failed");
+        return resp.json();
+      })
+      .then((data) => {
+        visitorToken = data.visitor_token || visitorToken;
+        if (data.visitor_token && (!socket || socket.readyState !== WebSocket.OPEN)) {
+          connect();
+        }
+      });
+  }
+
+  function flushPending() {
+    const text = pendingMessage;
+    pendingMessage = null;
+    if (!text) return;
+    sendMessage(text)
+      .then(() => {
+        addMessage(text, "visitor", true);
+        input.value = "";
+      })
+      .catch(() => {
+        updateStatus("Failed to send — try again", "default");
+      });
+  }
+
+  function resolveName(name) {
+    const cleaned = (name || "").trim();
+    if (cleaned) {
+      visitorName = cleaned;
+      localStorage.setItem(visitorNameKey, cleaned);
+    } else {
+      visitorName = null;
+      localStorage.setItem(visitorNameKey, "");
+    }
+    hideNamePrompt();
+    flushPending();
+  }
 
   function addMessage(text, kind, includeTimestamp = true) {
     const message = document.createElement("div");
@@ -58,6 +169,7 @@ function createWidget(siteId, markup, styles) {
 
     messages.appendChild(message);
     messages.scrollTop = messages.scrollHeight;
+    saveChatLog();
   }
 
   function formatTime(date) {
@@ -94,14 +206,15 @@ function createWidget(siteId, markup, styles) {
   }
 
   function connect() {
+    if (!visitorToken) return;
+    if (socket && socket.readyState === WebSocket.OPEN) return;
     socket = new WebSocket(`${socketUrl}/ws/visitor/${siteId}`);
     socket.onopen = () => {
       status.textContent = "Connecting...";
       socket.send(
         JSON.stringify({
           type: "visitor.connected",
-          visitor_id: visitorId,
-          page: window.location.pathname,
+          visitor_token: visitorToken,
         }),
       );
     };
@@ -130,13 +243,44 @@ function createWidget(siteId, markup, styles) {
     };
     socket.onerror = () => {
       updateStatus("Connection unavailable", "default");
+      socket = null;
     };
     socket.onclose = () => {
-      updateStatus("Connecting...", "default");
       socket = null;
-      setTimeout(connect, 5000);
+      updateStatus("Connecting...", "default");
     };
   }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+
+    if (visitorName === null && pendingMessage === null) {
+      pendingMessage = text;
+      showNamePrompt();
+      return;
+    }
+    sendMessage(text)
+      .then(() => {
+        addMessage(text, "visitor", true);
+        input.value = "";
+      })
+      .catch(() => {
+        updateStatus("Failed to send — try again", "default");
+      });
+  });
+
+  nameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      resolveName(nameInput.value);
+    }
+  });
+
+  nameSkip.addEventListener("click", () => {
+    resolveName("");
+  });
 
   launcher.addEventListener("click", () => {
     const isOpen = panel.classList.toggle("open");
@@ -145,17 +289,8 @@ function createWidget(siteId, markup, styles) {
     if (isOpen) input.focus();
   });
 
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const text = input.value.trim();
-    if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(text);
-    addMessage(text, "visitor", true);
-    input.value = "";
-  });
-
-  sendButton.disabled = true;
-  connect();
+  restoreChatLog();
+  sendButton.disabled = false;
 }
 
 function getVisitorId() {

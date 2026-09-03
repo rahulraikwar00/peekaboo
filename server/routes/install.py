@@ -26,16 +26,12 @@ if [ ! -x "$app_dir/venv/bin/python" ]; then
     echo "Creating local environment..."
     python3 -m venv "$app_dir/venv"
 fi
-if ! "$app_dir/venv/bin/python" -c 'import websockets' >/dev/null 2>&1; then
-    echo "Installing dependencies..."
-    "$app_dir/venv/bin/python" -m pip install --disable-pip-version-check --quiet websockets
-fi
 
 echo "Downloading CLI files..."
 base_url="https://raw.githubusercontent.com/rahulraikwar00/peekaboo/master/cli"
 curl -fsSL "$base_url/init.py" -o "$app_dir/cli/init.py" &
 pid_one=$!
-curl -fsSL "$base_url/main.py" -o "$app_dir/cli/main.py" &
+curl -fsSL "$base_url/connect.py" -o "$app_dir/cli/connect.py" &
 pid_two=$!
 curl -fsSL "$base_url/peekaboo.py" -o "$app_dir/cli/peekaboo.py" &
 pid_three=$!
@@ -47,10 +43,6 @@ cat > "$install_dir/peekaboo" <<'PEEKABOO_COMMAND'
 set -eu
 app_dir="$HOME/.peekaboo"
 server_url={server_url}
-case "${{1:-}}" in
-    listen) server_url="wss://${{server_url#https://}}" ;;
-    *) server_url="$server_url" ;;
-esac
 PEEKABOO_SERVER_URL="$server_url" PYTHONPATH="$app_dir" exec "$app_dir/venv/bin/python" -m cli.peekaboo "$@"
 PEEKABOO_COMMAND
 
