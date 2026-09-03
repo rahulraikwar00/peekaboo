@@ -119,6 +119,50 @@ def test_telegram_adapter_reuses_existing_thread(monkeypatch):
     assert client.requests[0][1]["message_thread_id"] == "7"
 
 
+def test_telegram_adapter_recreates_stale_thread(monkeypatch):
+    monkeypatch.setenv(
+        "ENCRYPTION_KEY",
+        "M0gU7ZvT1wQ2fVz1rT2gB3jZ4lH5kL6mN7oP8qR9sT0=",
+    )
+    from server.services.crypto import encrypt_credentials
+
+    class StaleClient(FakeClient):
+        async def post(self, url, data):
+            self.requests.append((url, data))
+            method = url.rsplit("/", 1)[-1]
+            if method == "sendMessage":
+                # First send to the stale thread fails; the retry to a new
+                # thread succeeds.
+                if not getattr(self, "_failed_once", False):
+                    self._failed_once = True
+                    return FakeResponse(
+                        {"ok": False, "description": "message thread not found"}
+                    )
+            if method == "createForumTopic":
+                return FakeResponse({"ok": True, "result": {"message_thread_id": 42}})
+            return FakeResponse({"ok": True, "result": {}})
+
+    client = StaleClient()
+    integration = {
+        "integration_id": "int_1",
+        "site_id": "site_1",
+        "provider": "telegram",
+        "destination_id": "12345",
+        "credentials": encrypt_credentials("TOKEN:secret"),
+    }
+    adapter = TelegramAdapter(integration, client=client)
+    conversation = {"conversation_id": "conv_1", "telegram_thread_id": "7"}
+
+    ref = _run(adapter.deliver({"message": "hi", "visitor_name": "Bo"}, conversation))
+    assert ref is not None
+    assert ref.thread_id == "42"
+    methods = [url.rsplit("/", 1)[-1] for url, _ in client.requests]
+    # stale send fails -> recreate topic -> retry send
+    assert methods == ["sendMessage", "createForumTopic", "sendMessage"]
+    # final send goes to the fresh thread
+    assert client.requests[2][1]["message_thread_id"] == 42
+
+
 def test_build_adapter_mapping():
     assert router.build_adapter({"provider": "telegram"}) is not None
     assert router.build_adapter({"provider": "discord"}) is None

@@ -25,12 +25,14 @@ def SERVER_URL():
             "https://peekaboo-477i.onrender.com").rstrip("/")
 
 
-def bot_token():
-    return (os.getenv("PEEKABOO_TELEGRAM_BOT_TOKEN") or "").strip()
-
-
-def chat_id():
-    return (os.getenv("PEEKABOO_TELEGRAM_CHAT_ID") or "").strip()
+def prompt_value(label, hint):
+    print(colorize(BOLD, f"\n  {label}"))
+    print(colorize(DIM, f"  {hint}"))
+    try:
+        value = input(colorize(CYAN, "  └─ ")).strip()
+    except EOFError:
+        value = ""
+    return value
 
 
 def register_webhook(site_id, api_key, token, chat_id):
@@ -64,20 +66,22 @@ def main():
         print(colorize(YELLOW, "Not logged in. Run `peekaboo setup` first."))
         return
 
-    token = bot_token()
-    chat_id_value = chat_id()
+    token = chat_id_value = None
+    print(colorize(YELLOW,
+                   "\n  Connect your Telegram bot to this site by entering its "
+                   "credentials."))
+    token = prompt_value(
+        "Bot API token",
+        "Get this from @BotFather, e.g. 123456789:ABCdef...")
+    chat_id_value = prompt_value(
+        "Group chat ID",
+        "The id of a topics-enabled group where the bot was added, "
+        "e.g. -1001234567890")
+    print()
     if not token or not chat_id_value:
-        print(colorize(BOLD, "Telegram bot credentials are read from the "
-                             "environment.\n"))
-        print("  " + colorize(CYAN, "PEEKABOO_TELEGRAM_BOT_TOKEN") +
-              "  the bot token from @BotFather")
-        print("  " + colorize(CYAN, "PEEKABOO_TELEGRAM_CHAT_ID") +
-              "  the id of a topics-enabled group where the bot was added\n")
-        print(colorize(DIM, "Example:\n"))
-        print(colorize(DIM,
-                       "  export PEEKABOO_TELEGRAM_BOT_TOKEN=123:abc...\n"
-                       "  export PEEKABOO_TELEGRAM_CHAT_ID=-1001234567890\n"
-                       "  peekaboo connect"))
+        print(colorize(YELLOW,
+                       "  ✗ Both the bot token and chat id are required. "
+                       "Nothing was changed."))
         return
 
     print(colorize(CYAN, f"  Registering webhook for site {site_id}..."))

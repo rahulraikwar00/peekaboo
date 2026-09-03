@@ -53,13 +53,18 @@ python -m http.server 5000 --directory testweb
 
 The owner replies to visitors from Telegram. `peekaboo connect` points a Telegram bot at your Peekaboo server and registers the destination group chat.
 
-Provide the bot credentials via environment variables:
+Run it and enter the credentials when prompted:
 
 ```bash
-export PEEKABOO_TELEGRAM_BOT_TOKEN=123456:your-bot-token
-export PEEKABOO_TELEGRAM_CHAT_ID=-1001234567890
 peekaboo connect
 ```
+
+You will be asked for:
+
+- **Bot API token** — from [@BotFather](https://t.me/BotFather).
+- **Group chat ID** — the id of a topics-enabled group the bot was added to.
+
+The values are sent to the server on connect (the bot token is encrypted and stored in the database; they are per-site credentials, not server environment variables).
 
 Requirements:
 

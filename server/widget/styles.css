@@ -264,14 +264,24 @@ header strong {
 }
 
 /* Name Prompt (optional, first message) */
-[hidden] {
-  display: none !important;
+.name-prompt {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 12px;
+  border-top: 1px solid transparent;
+  background: var(--paper);
+  transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease,
+    border-color 0.25s ease;
+  pointer-events: none;
 }
 
-.name-prompt {
+.name-prompt.open {
+  max-height: 120px;
+  opacity: 1;
   padding: 10px 12px;
-  border-top: 1px solid var(--line);
-  background: var(--paper);
+  border-top-color: var(--line);
+  pointer-events: auto;
 }
 
 .name-prompt label {
@@ -296,6 +306,7 @@ header strong {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .name-prompt .name-skip:hover {

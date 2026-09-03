@@ -21,7 +21,7 @@ window.WIDGET_MARKUP = `<button
   <div class="messages" aria-live="polite">
     <div class="message owner">Hi! How can we help?</div>
   </div>
-  <div class="name-prompt" hidden>
+  <div class="name-prompt">
     <label for="pboo-name">Your name (optional)</label>
     <div class="name-row">
       <input
@@ -308,14 +308,24 @@ header strong {
 }
 
 /* Name Prompt (optional, first message) */
-[hidden] {
-  display: none !important;
+.name-prompt {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 12px;
+  border-top: 1px solid transparent;
+  background: var(--paper);
+  transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease,
+    border-color 0.25s ease;
+  pointer-events: none;
 }
 
-.name-prompt {
+.name-prompt.open {
+  max-height: 120px;
+  opacity: 1;
   padding: 10px 12px;
-  border-top: 1px solid var(--line);
-  background: var(--paper);
+  border-top-color: var(--line);
+  pointer-events: auto;
 }
 
 .name-prompt label {
@@ -340,6 +350,7 @@ header strong {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .name-prompt .name-skip:hover {
@@ -430,6 +441,7 @@ const serverUrl = assetRoot.origin;
 const socketUrl = serverUrl.replace(/^http/, "ws");
 const visitorIdKey = `peekaboo-visitor-${siteId}`;
 const visitorNameKey = `peekaboo-name-${siteId}`;
+const chatLogKey = `peekaboo-log-${siteId}`;
 const visitorId = getVisitorId();
 const storedName = localStorage.getItem(visitorNameKey);
 
@@ -474,14 +486,54 @@ function createWidget(siteId, markup, styles) {
   let visitorToken = null;
   let visitorName = storedName || null;
   let pendingMessage = null;
+  const chatLog = loadChatLog();
+
+  function loadChatLog() {
+    try {
+      return JSON.parse(localStorage.getItem(chatLogKey) || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function saveChatLog() {
+    const entries = [];
+    messages.querySelectorAll(".message:not(.typing)").forEach((el) => {
+      const kind = el.classList.contains("visitor")
+        ? "visitor"
+        : el.classList.contains("owner")
+          ? "owner"
+          : null;
+      if (!kind) return;
+      entries.push({ kind, text: el.textContent.replace(/\d{2}:\d{2}$/, "").trim() });
+    });
+    localStorage.setItem(chatLogKey, JSON.stringify(entries));
+  }
+
+  function restoreChatLog() {
+    chatLog.forEach(({ kind, text }) => {
+      if (!text) return;
+      const el = document.createElement("div");
+      el.className = `message ${kind}`;
+      el.textContent = text;
+      messages.appendChild(el);
+    });
+    messages.scrollTop = messages.scrollHeight;
+  }
 
   function showNamePrompt() {
-    namePrompt.hidden = false;
+    namePrompt.classList.add("open");
+    form.classList.add("locked");
+    input.disabled = true;
+    sendButton.disabled = true;
     nameInput.focus();
   }
 
   function hideNamePrompt() {
-    namePrompt.hidden = true;
+    namePrompt.classList.remove("open");
+    form.classList.remove("locked");
+    input.disabled = false;
+    sendButton.disabled = false;
   }
 
   function sendMessage(text) {
@@ -503,7 +555,6 @@ function createWidget(siteId, markup, styles) {
         return resp.json();
       })
       .then((data) => {
-        // Reconnect with a fresh signed token once any previous one has expired.
         visitorToken = data.visitor_token || visitorToken;
         if (data.visitor_token && (!socket || socket.readyState !== WebSocket.OPEN)) {
           connect();
@@ -538,38 +589,6 @@ function createWidget(siteId, markup, styles) {
     flushPending();
   }
 
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
-
-    if (visitorName === null && pendingMessage === null) {
-      // First message: ask for an optional name once (non-blocking when skipping).
-      pendingMessage = text;
-      showNamePrompt();
-      return;
-    }
-    sendMessage(text)
-      .then(() => {
-        addMessage(text, "visitor", true);
-        input.value = "";
-      })
-      .catch(() => {
-        updateStatus("Failed to send — try again", "default");
-      });
-  });
-
-  nameInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      resolveName(nameInput.value);
-    }
-  });
-
-  nameSkip.addEventListener("click", () => {
-    resolveName("");
-  });
-
   function addMessage(text, kind, includeTimestamp = true) {
     const message = document.createElement("div");
     message.className = `message ${kind}`;
@@ -584,6 +603,7 @@ function createWidget(siteId, markup, styles) {
 
     messages.appendChild(message);
     messages.scrollTop = messages.scrollHeight;
+    saveChatLog();
   }
 
   function formatTime(date) {
@@ -665,36 +685,16 @@ function createWidget(siteId, markup, styles) {
     };
   }
 
-  function sendMessage(text) {
-    const body = {
-      site_id: siteId,
-      visitor_id: visitorId,
-      message: text,
-      page: window.location.pathname,
-      referrer: document.referrer || "",
-    };
-    return fetch(`${serverUrl}/v1/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then((resp) => {
-        if (!resp.ok) throw new Error("send failed");
-        return resp.json();
-      })
-      .then((data) => {
-        // Reconnect with a fresh signed token once any previous one has expired.
-        visitorToken = data.visitor_token || visitorToken;
-        if (data.visitor_token && (!socket || socket.readyState !== WebSocket.OPEN)) {
-          connect();
-        }
-      });
-  }
-
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const text = input.value.trim();
     if (!text) return;
+
+    if (visitorName === null && pendingMessage === null) {
+      pendingMessage = text;
+      showNamePrompt();
+      return;
+    }
     sendMessage(text)
       .then(() => {
         addMessage(text, "visitor", true);
@@ -705,6 +705,17 @@ function createWidget(siteId, markup, styles) {
       });
   });
 
+  nameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      resolveName(nameInput.value);
+    }
+  });
+
+  nameSkip.addEventListener("click", () => {
+    resolveName("");
+  });
+
   launcher.addEventListener("click", () => {
     const isOpen = panel.classList.toggle("open");
     launcher.setAttribute("aria-expanded", String(isOpen));
@@ -712,6 +723,7 @@ function createWidget(siteId, markup, styles) {
     if (isOpen) input.focus();
   });
 
+  restoreChatLog();
   sendButton.disabled = false;
 }
 

@@ -1,10 +1,12 @@
-import json
+import logging
 
 import httpx
 
 from server.integrations.base import ConversationRef, IntegrationAdapter
 from server.services import storage
 from server.services.crypto import decrypt_credentials
+
+logger = logging.getLogger("peekaboo.telegram")
 
 TELEGRAM_API = "https://api.telegram.org"
 
@@ -32,9 +34,20 @@ class TelegramAdapter(IntegrationAdapter):
         else:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(url, data=params)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            desc = ""
+            try:
+                desc = exc.response.json().get("description", "")
+            except Exception:
+                desc = exc.response.text[:200]
+            logger.warning("Telegram %s HTTP %s: %s", method, exc.response.status_code, desc)
+            raise
         payload = resp.json()
         if not payload.get("ok"):
+            desc = payload.get("description", "")
+            logger.warning("Telegram %s failed: %s", method, desc or payload)
             raise RuntimeError(f"Telegram {method} failed: {payload}")
         return payload.get("result") or {}
 
@@ -54,49 +67,61 @@ class TelegramAdapter(IntegrationAdapter):
     async def _create_thread(self, event: dict) -> str | None:
         """Create a per-conversation forum topic and return the thread id."""
         chat_id = self.integration["destination_id"]
-        title = event.get("visitor_name") or "New conversation"
+        name = (event.get("visitor_name") or "").strip() or "New conversation"
         try:
             result = await self._request(
                 "createForumTopic",
                 chat_id=chat_id,
-                name=title[:128],
+                name=name[:128],
             )
         except Exception:
             return None
         return result.get("message_thread_id")
 
+    async def _send(self, chat_id: str, text: str, thread_id: str | None) -> bool:
+        params = {"chat_id": chat_id, "text": text}
+        if thread_id:
+            params["message_thread_id"] = thread_id
+        try:
+            await self._request("sendMessage", **params)
+            return True
+        except Exception:
+            return False
+
     async def deliver(self, event: dict, conversation: dict) -> ConversationRef | None:
         integration_id = self.integration.get("integration_id")
         chat_id = self.integration["destination_id"]
         text = format_telegram_message(event)
-
         conversation_id = conversation["conversation_id"]
         thread_id = conversation.get("telegram_thread_id")
+        new_thread = False
 
         if not thread_id:
-            # A conversation must be anchored to a forum topic so the owner can
-            # reply in-thread and have the reply route back to the visitor.
-            # If we can't create one (not a forum, missing permission, etc.),
-            # do NOT fall back to a threadless message in the group -- that
-            # produces stray, unroutable messages. Fail the delivery instead.
             thread_id = await self._create_thread(event)
             if not thread_id:
                 return None
+            new_thread = True
+
+        if not await self._send(chat_id, text, thread_id):
+            if new_thread:
+                return None
+            # Stale thread — the topic was deleted or is inaccessible.
+            # Recreate a fresh topic for this visitor and retry once.
+            logger.info(
+                "Stale thread %s for conversation %s, recreating",
+                thread_id, conversation_id,
+            )
+            thread_id = await self._create_thread(event)
+            if not thread_id:
+                return None
+            new_thread = True
+            if not await self._send(chat_id, text, thread_id):
+                return None
+
+        if new_thread:
             storage.update_conversation_integration_ref(
                 conversation_id, integration_id, thread_id
             )
-
-        params = {
-            "chat_id": chat_id,
-            "text": text,
-        }
-        if thread_id:
-            params["message_thread_id"] = thread_id
-
-        try:
-            await self._request("sendMessage", **params)
-        except Exception:
-            return None
 
         return ConversationRef(
             site_id=self.integration["site_id"],
@@ -104,5 +129,5 @@ class TelegramAdapter(IntegrationAdapter):
             integration_id=integration_id,
             provider=self.provider,
             destination_id=chat_id,
-            thread_id=str(thread_id or ""),
+            thread_id=str(thread_id),
         )
