@@ -2,6 +2,7 @@ fastapi
 uvicorn
 websockets
 pytest
-httpx2
+httpx
 supabase
 python-dotenv
+cryptography
