@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS owner_api_keys (
   created_at TEXT
 );
 CREATE TABLE IF NOT EXISTS integrations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   site_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   destination_id TEXT,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS integrations (
   config TEXT,
   created_at TEXT,
   updated_at TEXT
-);
+ );
 CREATE TABLE IF NOT EXISTS conversations (
   conversation_id TEXT PRIMARY KEY,
   site_id TEXT NOT NULL,
@@ -268,14 +268,18 @@ class SqliteStorage(Storage):
                 conn.close()
 
     def insert_integration(self, record) -> str:
+        integration_id = record.get(
+            "integration_id", "itg_" + secrets.token_urlsafe(16)
+        )
         with self._lock:
             conn = _conn(self.db_path)
             try:
                 cur = conn.execute(
-                    "INSERT INTO integrations(site_id, provider, destination_id, "
+                    "INSERT INTO integrations(id, site_id, provider, destination_id, "
                     "credentials, webhook_secret, enabled, config, created_at, updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,datetime('now'),datetime('now'))",
+                    "VALUES (?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))",
                     (
+                        integration_id,
                         record["site_id"],
                         record["provider"],
                         record.get("destination_id"),
@@ -286,7 +290,7 @@ class SqliteStorage(Storage):
                     ),
                 )
                 conn.commit()
-                return str(cur.lastrowid)
+                return integration_id
             finally:
                 conn.close()
 
@@ -457,6 +461,8 @@ class SqliteStorage(Storage):
         d["enabled"] = bool(d.get("enabled"))
         if d.get("config"):
             d["config"] = json.loads(d["config"])
+        if "id" in d:
+            d["integration_id"] = d.pop("id")
         return d
 
     def _conversation_dict(self, row):

@@ -76,7 +76,9 @@ class MemoryStorage(Storage):
         return None
 
     def insert_integration(self, record) -> str:
-        integration_id = "itg_" + secrets.token_urlsafe(16)
+        integration_id = record.get(
+            "integration_id", "itg_" + secrets.token_urlsafe(16)
+        )
         integrations.setdefault(record["site_id"], {})[integration_id] = dict(record)
         return integration_id
 

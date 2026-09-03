@@ -1,4 +1,5 @@
 import json
+import secrets
 
 from server.services.base_storage import Storage
 
@@ -74,7 +75,7 @@ class SupabaseStorage(Storage):
         result = (
             self.db.table("integrations").select("*").eq("site_id", site_id).execute()
         )
-        return result.data or []
+        return [self._normalize_integration(r) for r in (result.data or [])]
 
     def get_integration(self, site_id, integration_id):
         result = (
@@ -85,7 +86,7 @@ class SupabaseStorage(Storage):
             .limit(1)
             .execute()
         )
-        return result.data[0] if result.data else None
+        return self._normalize_integration(result.data[0]) if result.data else None
 
     def find_integration_by_webhook_secret(self, secret):
         result = (
@@ -95,11 +96,18 @@ class SupabaseStorage(Storage):
             .limit(1)
             .execute()
         )
-        return result.data[0] if result.data else None
+        return self._normalize_integration(result.data[0]) if result.data else None
 
     def insert_integration(self, record) -> str:
-        result = self.db.table("integrations").insert(record).execute()
-        return str(result.data[0]["id"]) if result.data else ""
+        integration_id = record.get(
+            "integration_id", "itg_" + secrets.token_urlsafe(16)
+        )
+        row = dict(record)
+        row["id"] = integration_id
+        result = self.db.table("integrations").insert(
+            {k: v for k, v in row.items() if k != "integration_id"}
+        ).execute()
+        return integration_id
 
     def delete_integration(self, site_id, integration_id) -> bool:
         result = (
@@ -110,6 +118,15 @@ class SupabaseStorage(Storage):
             .execute()
         )
         return bool(result.data)
+
+    @staticmethod
+    def _normalize_integration(row):
+        if not row:
+            return None
+        d = dict(row)
+        if "id" in d:
+            d["integration_id"] = d.pop("id")
+        return d
 
     # --- conversations ---
     def get_conversation(self, conversation_id):

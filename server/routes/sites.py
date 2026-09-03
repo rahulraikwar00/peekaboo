@@ -14,10 +14,22 @@ from server.config import (
 )
 from server.services.auth import require_owner
 from server.services.security import hash_token
-from server.services.storage import insert_site, site_exists
+from server.services.storage import (
+    insert_site,
+    list_sites,
+    site_exists,
+)
 from server.state import site_creation_attempts, visitors
 
 router = APIRouter()
+
+
+@router.get("/sites")
+async def list_owner_sites(request: Request):
+    owner_id = require_owner(request)
+    if not owner_id:
+        return PlainTextResponse("Invalid API key", status_code=401)
+    return {"sites": list_sites(owner_id)}
 
 
 @router.get("/sites/{site_id}/status")

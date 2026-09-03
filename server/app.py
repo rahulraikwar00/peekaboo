@@ -3,7 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from server.config import SITE_ROOT, WIDGET_ROOT
-from server.routes import auth, core, install, messages, sites, webhook, websockets
+from server.routes import (
+    auth,
+    core,
+    install,
+    integrations_crud,
+    messages,
+    sites,
+    webhook,
+    websockets,
+)
 
 
 def create_app():
@@ -24,6 +33,7 @@ def create_app():
         messages.router,
         webhook.router,
         websockets.router,
+        integrations_crud.router,
     ):
         app.router.routes.extend(router.routes)
     return app
