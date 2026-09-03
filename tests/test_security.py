@@ -17,6 +17,10 @@ def reset_state():
     main.site_creation_attempts.clear()
     main.owner_api_keys.clear()
     main.pending_oauth.clear()
+    main.conversations.clear()
+    main.integrations.clear()
+    main.pending_replies.clear()
+    main.site_stats.clear()
 
 
 def make_owner():
@@ -298,7 +302,8 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
         auth_routes, "create_client", lambda *a, **k: FakeThrowawayClient()
     )
     monkeypatch.setattr(
-        auth_routes, "mint_owner_api_key", lambda owner_id: "minted-key"
+        auth_routes, "mint_owner_api_key",
+        lambda owner_id, db_client=None: "minted-key",
     )
     monkeypatch.setattr(
         auth_routes, "get_supabase_client", lambda: fake_shared

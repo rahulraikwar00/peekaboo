@@ -1,78 +1,148 @@
+"""Storage facade: selects the active backend and exposes a stable module-level API.
+
+Backend selection (see server.settings.storage_backend):
+- If a Supabase client is configured -> SupabaseStorage (hosted).
+- Else if STORAGE_BACKEND=sqlite (explicit) -> SqliteStorage (self-host).
+- Else -> MemoryStorage (tests / in-memory local mode).
+
+The backend is resolved per-call so tests can swap ``server.main.supabase`` between
+requests. The SQLite instance (self-host only) is cached since it isn't swapped at runtime.
+"""
+
+from server import settings
 from server.config import get_supabase_client
-from server.services.security import hash_token
-from server.state import owner_api_keys, sites
+from server.services.memory_storage import MemoryStorage
+from server.services.sqlite_storage import SqliteStorage
+from server.services.supabase_storage import SupabaseStorage
+
+_sqlite_instance = None
 
 
+def get_storage():
+    global _sqlite_instance
+    client = get_supabase_client()
+    if client is not None:
+        return SupabaseStorage(client)
+    if settings.storage_backend() == "sqlite":
+        if _sqlite_instance is None:
+            _sqlite_instance = SqliteStorage(settings.sqlite_url())
+        return _sqlite_instance
+    return MemoryStorage()
+
+
+def reset_storage():
+    """Force re-selection of the backend (used by tests)."""
+    global _sqlite_instance
+    _sqlite_instance = None
+
+
+# --- owner api keys ---
 def get_owner_id_from_api_key(api_key):
     if not api_key:
         return None
-    key_hash = hash_token(api_key)
-    db = get_supabase_client()
-    if db is not None:
-        result = db.table("owner_api_keys").select(
-            "owner_id"
-        ).eq("key_hash", key_hash).is_(
-            "revoked_at", None
-        ).limit(1).execute()
-        if result.data:
-            return result.data[0]["owner_id"]
-        return None
-    record = owner_api_keys.get(key_hash)
-    if record and not record.get("revoked"):
-        return record["owner_id"]
-    return None
+    from server.services.security import hash_token
+    return get_storage().owner_id_from_api_key(hash_token(api_key))
 
 
+def insert_owner_api_key(owner_id, key_hash):
+    return get_storage().insert_owner_api_key(owner_id, key_hash)
+
+
+def revoke_owner_api_key(key_hash):
+    return get_storage().revoke_owner_api_key(key_hash)
+
+
+# --- sites ---
 def site_exists(site_id):
-    db = get_supabase_client()
-    if db is None:
-        return site_id in sites
-    result = db.table("sites").select("site_id").eq(
-        "site_id", site_id
-    ).limit(1).execute()
-    return bool(result.data)
+    return get_storage().site_exists(site_id)
 
 
 def get_site(site_id):
-    db = get_supabase_client()
-    if db is None:
-        return sites.get(site_id)
-    result = db.table("sites").select("*").eq(
-        "site_id", site_id
-    ).limit(1).execute()
-    return result.data[0] if result.data else None
+    return get_storage().get_site(site_id)
 
 
 def insert_site(site_record):
-    db = get_supabase_client()
-    if db is not None:
-        db.table("sites").insert(site_record).execute()
-    else:
-        sites[site_record["site_id"]] = site_record
+    return get_storage().insert_site(site_record)
 
 
-def save_message(conversation_id, sender, message):
-    db = get_supabase_client()
-    if db is not None:
-        db.table("messages").insert({
-            "conversation_id": conversation_id,
-            "sender": sender,
-            "message": message,
-        }).execute()
+def list_sites(owner_id):
+    return get_storage().list_sites(owner_id)
 
 
-def create_conversation(conversation_id, site_id):
-    db = get_supabase_client()
-    if db is not None:
-        db.table("conversations").insert({
-            "conversation_id": conversation_id,
-            "site_id": site_id,
-        }).execute()
+def sites_for_owner(owner_id):
+    return get_storage().sites_for_owner(owner_id)
 
 
-def update_conversation_visitor(conversation_id, visitor_id):
-    db = get_supabase_client()
-    if db is not None:
-        db.table("conversations").update({
-            "visitor_id": visitor_id,
-        }).eq("conversation_id", conversation_id).execute()
+def increment_messages_received(site_id):
+    return get_storage().increment_messages_received(site_id)
+
+
+def get_site_stats(site_id):
+    if hasattr(get_storage(), "stats"):
+        return get_storage().stats(site_id)
+    return {"messages_received": 0, "replies_sent": 0, "last_message_at": None}
+
+
+# --- integrations ---
+def list_integrations(site_id):
+    return get_storage().list_integrations(site_id)
+
+
+def get_integration(site_id, integration_id):
+    return get_storage().get_integration(site_id, integration_id)
+
+
+def insert_integration(record) -> str:
+    return get_storage().insert_integration(record)
+
+
+def delete_integration(site_id, integration_id) -> bool:
+    return get_storage().delete_integration(site_id, integration_id)
+
+
+# --- conversations ---
+def get_conversation(conversation_id):
+    return get_storage().get_conversation(conversation_id)
+
+
+def get_conversation_by_thread(site_id, thread_id):
+    return get_storage().get_conversation_by_thread(site_id, thread_id)
+
+
+def get_or_create_conversation(site_id, visitor_id):
+    return get_storage().get_or_create_conversation(site_id, visitor_id)
+
+
+def update_conversation_thread(conversation_id, thread_id):
+    return get_storage().update_conversation_thread(conversation_id, thread_id)
+
+
+def create_conversation(conversation_id, site_id, visitor_id=None):
+    return get_storage().create_conversation(conversation_id, site_id, visitor_id)
+
+
+# --- pending replies ---
+def enqueue_reply(conversation_id, reply):
+    get_storage().enqueue_reply(conversation_id, reply)
+
+
+def pending_replies(conversation_id):
+    return get_storage().pending_replies(conversation_id)
+
+
+def delete_pending_reply(reply_id):
+    get_storage().delete_pending_reply(reply_id)
+
+
+def purge_expired_pending_replies(older_than_iso) -> int:
+    return get_storage().purge_expired_pending_replies(older_than_iso)
+
+
+# --- legacy message persistence (no-op: message content is never stored) ---
+def save_message(*args, **kwargs):
+    # Privacy model: message bodies are never persisted. Forwarded transiently only.
+    return None
+
+
+def update_conversation_visitor(*args, **kwargs):
+    return None

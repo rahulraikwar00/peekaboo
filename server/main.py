@@ -20,10 +20,14 @@ from server.services.auth import mint_owner_api_key, require_owner
 from server.services.security import hash_token
 from server.services.storage import get_owner_id_from_api_key, save_message, site_exists
 from server.state import (
+    conversations,
+    integrations,
     operators,
     owner_api_keys,
     pending_oauth,
+    pending_replies,
     site_creation_attempts,
+    site_stats,
     sites,
     visitor_info,
     visitors,

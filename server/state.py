@@ -18,3 +18,15 @@ pending_oauth = {}
 
 # client host -> site creation timestamps
 site_creation_attempts = {}
+
+# conversation_id -> conversation (metadata only, no message bodies)
+conversations = {}
+
+# site_id -> {integration_id -> record}
+integrations = {}
+
+# conversation_id -> [pending replies not yet delivered]
+pending_replies = {}
+
+# site_id -> privacy-safe counters
+site_stats = {}
