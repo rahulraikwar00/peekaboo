@@ -11,6 +11,10 @@ cli/.peekaboo/
 .env.*
 !.env.example
 
+# Local sqlite data
+*.db
+*.sqlite
+
 # Local demo website
 /testweb/
 

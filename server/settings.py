@@ -15,5 +15,12 @@ def storage_backend() -> str:
     return "sqlite"
 
 
+def storage_forced_supabase() -> bool:
+    """True only when the operator explicitly requested Supabase via
+    STORAGE_BACKEND=supabase. Used to fail loudly on the server instead of
+    silently running in-memory when Supabase credentials are missing."""
+    return (os.getenv("STORAGE_BACKEND") or "").strip().lower() == "supabase"
+
+
 def sqlite_url() -> str:
     return os.getenv("DATABASE_URL") or "peekaboo.db"

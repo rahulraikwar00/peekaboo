@@ -27,6 +27,13 @@ def get_storage():
         if _sqlite_instance is None:
             _sqlite_instance = SqliteStorage(settings.sqlite_url())
         return _sqlite_instance
+    if settings.storage_forced_supabase():
+        raise RuntimeError(
+            "STORAGE_BACKEND=supabase was set but Supabase is not configured. "
+            "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or remove "
+            "STORAGE_BACKEND (tests/local may use STORAGE_BACKEND=sqlite or "
+            "memory)."
+        )
     return MemoryStorage()
 
 
