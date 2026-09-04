@@ -106,7 +106,7 @@ async def oauth_callback(request: Request):
         # 1. Exchange code using an isolated auth-only client
         auth_client = create_client(
             os.environ["SUPABASE_URL"],
-            os.environ["SUPABASE_ANON_KEY"],
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"],
         )
         session = auth_client.auth.exchange_code_for_session({
             "auth_code": code,
