@@ -41,10 +41,10 @@ async def register_webhook(site_id: str, request: Request):
     if not token or not chat_id:
         return PlainTextResponse("token and chat_id are required", status_code=400)
 
-    public_base = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    public_base = (os.getenv("PEEKABOO_SERVER_URL") or "").strip().rstrip("/")
     if not public_base:
         return PlainTextResponse(
-            "PUBLIC_BASE_URL is not configured on the server", status_code=500
+            "PEEKABOO_SERVER_URL is not configured on the server", status_code=500
         )
 
     encrypted_token = encrypt_credentials(token)
