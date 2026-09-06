@@ -6,9 +6,8 @@ from fastapi.requests import Request
 from server.config import SITE_ROOT, WIDGET_ROOT
 from server.routes import (
     auth,
-    cli_files,
     core,
-    install,
+    dashboard,
     integrations_crud,
     messages,
     sites,
@@ -23,16 +22,15 @@ def create_app():
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["*"],
     )
     app.mount("/widget", StaticFiles(directory=WIDGET_ROOT), name="widget")
     app.mount("/site", StaticFiles(directory=SITE_ROOT), name="site")
     for router in (
         core.router,
-        install.router,
-        cli_files.router,
         auth.router,
+        dashboard.router,
         sites.router,
         messages.router,
         webhook.router,

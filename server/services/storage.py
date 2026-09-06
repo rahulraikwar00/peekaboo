@@ -59,6 +59,10 @@ def revoke_owner_api_key(key_hash):
     return get_storage().revoke_owner_api_key(key_hash)
 
 
+def upsert_owner(email: str, provider: str) -> str:
+    return get_storage().upsert_owner(email=email, provider=provider)
+
+
 # --- sites ---
 def site_exists(site_id):
     return get_storage().site_exists(site_id)
@@ -137,6 +141,12 @@ def get_or_create_conversation(site_id, visitor_id, integration_id=None):
 def update_conversation_integration_ref(conversation_id, integration_id, thread_id):
     return get_storage().update_conversation_integration_ref(
         conversation_id, integration_id, thread_id
+    )
+
+
+def update_conversation_provider_config(conversation_id, **fields):
+    return get_storage().update_conversation_provider_config(
+        conversation_id, **fields
     )
 
 

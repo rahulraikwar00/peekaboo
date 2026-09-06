@@ -31,6 +31,13 @@ class MemoryStorage(Storage):
 
     def insert_owner_api_key(self, owner_id, key_hash):
         owner_api_keys[key_hash] = {"owner_id": owner_id, "revoked": False}
+        # Bind the key hash to the same email we know for this owner, so
+        # the tests that read owner_api_keys directly still see what they expect.
+        from server.state import owners
+        for rec in owners.values():
+            if rec.get("owner_id") == owner_id:
+                rec.setdefault("key_hashes", []).append(key_hash)
+                break
 
     def revoke_owner_api_key(self, key_hash) -> bool:
         record = owner_api_keys.get(key_hash)
@@ -38,6 +45,21 @@ class MemoryStorage(Storage):
             return False
         record["revoked"] = True
         return True
+
+    def upsert_owner(self, email: str, provider: str) -> str:
+        from server.state import owners
+        key = (provider, email)
+        existing = owners.get(key)
+        if existing:
+            return existing["owner_id"]
+        owner_id = "own_" + secrets.token_urlsafe(12)
+        owners[key] = {
+            "owner_id": owner_id,
+            "email": email,
+            "provider": provider,
+        }
+        # Also backfill the owner_api_keys index for tests that look up by owner_id.
+        return owner_id
 
     # --- sites ---
     def site_exists(self, site_id) -> bool:
@@ -110,12 +132,16 @@ class MemoryStorage(Storage):
         return conversations.get(conversation_id)
 
     def get_conversation_by_integration_thread(self, site_id, integration_id, thread_id):
+        thread_str = str(thread_id)
         for conv in conversations.values():
-            if (
-                conv.get("site_id") == site_id
-                and conv.get("integration_id") == integration_id
-                and conv.get("telegram_thread_id") == str(thread_id)
-            ):
+            if conv.get("site_id") != site_id or conv.get("integration_id") != integration_id:
+                continue
+            if conv.get("telegram_thread_id") == thread_str:
+                return conv
+            cfg = conv.get("config") or {}
+            if not isinstance(cfg, dict):
+                continue
+            if cfg.get("thread_id") == thread_str or cfg.get("ts") == thread_str:
                 return conv
         return None
 
@@ -135,6 +161,7 @@ class MemoryStorage(Storage):
             "integration_id": integration_id,
             "telegram_chat_id": None,
             "telegram_thread_id": None,
+            "config": {},
             "created_at": _now(),
             "last_activity_at": _now(),
         }
@@ -147,6 +174,16 @@ class MemoryStorage(Storage):
             conv["integration_id"] = integration_id
             conv["telegram_thread_id"] = str(thread_id) if thread_id is not None else None
 
+    def update_conversation_provider_config(self, conversation_id, **fields):
+        conv = conversations.get(conversation_id)
+        if conv is None:
+            return
+        cfg = conv.setdefault("config", {})
+        for k, v in fields.items():
+            if v is None:
+                continue
+            cfg[k] = v
+
     def create_conversation(self, conversation_id, site_id, visitor_id=None):
         conversations[conversation_id] = {
             "conversation_id": conversation_id,
@@ -155,6 +192,7 @@ class MemoryStorage(Storage):
             "integration_id": None,
             "telegram_chat_id": None,
             "telegram_thread_id": None,
+            "config": {},
             "created_at": _now(),
             "last_activity_at": _now(),
         }

@@ -1,14 +1,14 @@
 # Peekaboo — Architecture & Interview Notes
 
-> Short, plain-language answers to the "explain your architecture and the decisions you made" questions, with an annotated data-flow diagram. Built for interview prep.
+> Short, plain-language answers to the "explain your architecture and the decisions you made" questions, with an annotated data-flow diagram.
 
 ---
 
 ## What is Peekaboo?
 
-A two-way chat widget. A **website visitor** types in a floating widget; the **site owner** replies from a **Telegram forum group**; the reply is pushed back to the widget in near-real time over WebSocket. Offline replies are queued and delivered when the visitor reconnects.
+A multi-channel chat widget. A **website visitor** types in a floating widget; the **site owner** replies from **Telegram**, **Discord**, or **Slack**; the reply is pushed back to the widget in near-real time over WebSocket. Offline replies are queued and delivered when the visitor reconnects.
 
-**Elevator pitch:** *"Peekaboo turns your existing Telegram group into a support inbox. Each visitor gets their own topic, so the owner replies where they already live, and the visitor sees the answer in the widget live — with offline delivery and no message history stored server-side."*
+**Elevator pitch:** *"Peekaboo turns your existing Telegram/Discord/Slack channels into a support inbox. Each visitor gets their own conversation, so the owner replies where they already live, and the visitor sees the answer in the widget live — with offline delivery and no message history stored server-side."*
 
 ---
 
@@ -19,139 +19,105 @@ A two-way chat widget. A **website visitor** types in a floating widget; the **s
 **A.**
 
 1. Visitor opens the widget → sends a message via **HTTP `POST /v1/messages`**.
-2. Server validates (size, schema, honeypot, origin), rate-limits, then forwards to Telegram via **`sendMessage`** into a per-visitor **forum topic** (`message_thread_id`).
-3. Owner replies **inside that topic** in Telegram.
-4. Telegram calls our **webhook** (`POST /v1/telegram/webhook`), which routes the reply back.
+2. Server validates (size, schema, honeypot, origin), rate-limits, then forwards to **all enabled channels** via the adapter registry:
+   - **Telegram:** creates a forum topic, sends message.
+   - **Discord:** sends message to channel via bot token.
+   - **Slack:** sends message via bot token.
+3. Owner replies in their preferred channel.
+4. Channel webhook receives the reply and routes it back.
 5. If the visitor's WebSocket is open → push `owner.message` instantly. If not → **enqueue** a pending reply.
 6. On reconnect, the visitor socket replays pending replies and purges them.
 
-**Why this split:** *send* over HTTP (client-initiated, fits rest APIs), *receive* over WebSocket (server-initiated push, no polling). Source: `server/routes/messages.py`, `server/integrations/telegram.py`, `server/routes/webhook.py`, `server/routes/websockets.py`.
+**Why this split:** *send* over HTTP (client-initiated, fits REST APIs), *receive* over WebSocket (server-initiated push, no polling). Source: `server/routes/messages.py`, `server/integrations/router.py`, `server/routes/webhook.py`, `server/routes/websockets.py`.
 
 ---
 
-### Q2. Why one Telegram forum topic per visitor, and why route by `(integration_id, thread_id)`?
+### Q2. How does the channel abstraction work?
 
 **A.**
 
-- A forum topic becomes the owner's **per-visitor inbox**. The topic **title carries the visitor's name** (`visitor_name`), so the owner knows who it is at a glance and the message body stays clean (just the raw text, no header boilerplate).
-- Routing is keyed by the tuple **`(integration_id, thread_id)`**, never `thread_id` alone. Two different bots/groups can reuse the *same numeric* thread id; the tuple prevents cross-group collisions.
-- If a topic is deleted (stale thread) the adapter **self-heals**: it recreates a fresh topic and retries the send once, instead of failing or emitting an unroutable threadless message.
+- One `IntegrationAdapter` ABC with a single `deliver(event, conversation)` method.
+- Adapters: `TelegramAdapter`, `DiscordAdapter`, `SlackAdapter`.
+- Registry in `ADAPTERS` dict (keyed by provider name). Adding a new channel = one new adapter + registration.
+- Router calls `build_adapter(integration)` to get the right adapter, then `deliver()`.
+- Each adapter handles its own: token decryption, API calls, conversation routing.
 
-Source: `server/integrations/telegram.py:67-133` (thread create + stale-thread recovery), `_create_thread` names from `visitor_name`.
-
----
-
-### Q3. Why WebSocket instead of polling?
-
-**A.**
-
-- Replies are **server-initiated** events; WebSocket gives low-latency push without a poll loop.
-- An earlier version **polled** owner status every 15s; we replaced it with a WebSocket/status push (commit `1a4d4b1`).
-- The widget sends over **fetch**, receives over **WS** — each direction uses the simplest fitting mechanism.
-- Reconnects use the signed `visitor_token` returned by the send endpoint, and pending replies are replayed on connect.
-
-Source: `server/widget/pboo.js:208-252` (WS receive), `server/routes/websockets.py`.
+Source: `server/integrations/base.py` (ABC), `server/integrations/router.py` (registry + dispatch).
 
 ---
 
-### Q4. Why a storage abstraction with three backends?
+### Q3. Why a storage abstraction with three backends?
 
 **A.**
 
 - One `Storage` ABC with **Memory** (tests / local dev), **SQLite** (self-host via docker-compose), and **Supabase** (hosted, Postgres + service-role).
-- Benefits: **one shared test suite** runs against every backend; swapping persistence is a config change (`STORAGE_BACKEND` / env), not a rewrite.
-- Selection resolves **per call** (`get_storage()`) so tests can hot-swap the client between requests.
+- Benefits: **one shared test suite** runs against every backend; swapping persistence is a config change, not a rewrite.
+- Conversation routing uses `conversations.config` jsonb for Discord/Slack (flexible), dedicated columns for Telegram (efficient).
 
-Source: `server/services/base_storage.py` (interface), `server/services/storage.py:21-30` (selection), `memory_storage.py`, `sqlite_storage.py`, `supabase_storage.py`.
+Source: `server/services/base_storage.py` (interface), `server/services/storage.py` (selection), `memory_storage.py`, `sqlite_storage.py`, `supabase_storage.py`.
 
 ---
 
-### Q5. How do offline replies work?
+### Q4. How do offline replies work?
 
 **A.**
 
 - When the visitor's socket is **not** open, the webhook calls `enqueue_reply(conversation_id, text)` → stored in the **`pending_replies`** table.
 - On **websocket connect**, the server selects pending replies for that conversation, pushes each as `owner.message`, and **deletes** the delivered rows.
-- Expired rows are garbage-collected after a **7-day TTL** (`PENDING_TTL_SECONDS`), run opportunistically on webhook calls.
+- Expired rows are garbage-collected after a **7-day TTL** (`PENDING_TTL_SECONDS`).
 
-Source: `server/routes/webhook.py:66` (enqueue), `server/routes/websockets.py:84-90` (replay+purge), `webhook.py:107-115` (GC).
-
----
-
-### Q6. Why a webhook instead of polling Telegram?
-
-**A.**
-
-- **Push not pull:** Telegram calls us the moment the owner replies (low latency, no long-poll loop).
-- **Auth:** each integration has a random `webhook_secret`; Telegram sends it as `X-Telegram-Bot-Api-Secret-Token` and we verify with constant-time compare (`hmac.compare_digest`).
-- **Dedup:** Telegram retries until acked, so we guard with the **`telegram_updates`** table keyed on `update_id` (a re-delivered update returns early). Supabase treats a concurrent duplicate insert as "already seen."
-
-Source: `server/routes/webhook.py:16-44`, `server/services/supabase_storage.py:233-250`.
+Source: `server/routes/webhook.py` (enqueue), `server/routes/websockets.py` (replay+purge).
 
 ---
 
-### Q7. How do you rate-limit and what's the scaling concern?
+### Q5. How does the owner dashboard work?
 
 **A.**
 
-- In-process **sliding-window limiter** (`defaultdict(deque)` of monotonic timestamps), three key types:
-  - per-IP `20 / 10s`
-  - per-site `120 / 3600s`
-  - per-visitor `5 / 60s`
-- The WebSocket path has its own inbound `20 / 10s` window and a per-site visitor cap (`1000`).
-- **Scaling caveat (honest):** the limiter lives in one process (`server.state`). If we scaled to multiple workers we'd move it to **Redis** or a shared store — it's the first thing to move off-process. `pending_replies` stays DB-backed so it already survives restarts.
+- **Web-only flow:** owner visits `/dashboard`, logs in with Google/GitHub/OAuth, creates sites, configures channels.
+- **Session cookie:** signed HMAC token in `peekaboo_session` cookie, 14-day TTL, httpOnly.
+- **No CLI:** the setup flow is entirely in the browser. Owner pastes the embed snippet, adds channels via forms.
+- **First-time signup:** OAuth auto-creates an `owners` row, mints an API key shown once.
 
-Source: `server/services/ratelimit.py`, `server/state.py`, `server/routes/messages.py:74-87`.
+Source: `server/routes/dashboard.py`, `server/services/session.py`, `server/routes/auth.py`.
 
 ---
 
-### Q8. What security controls exist?
+### Q6. What security controls exist?
 
 **A.**
 
-- **Signed visitor tokens:** `base64(payload).HMAC-SHA256(secret)` with 15-min TTL; binds token to `(site_id, visitor_id)` to prevent cross-site replay; verified constant-time.
-- **Origin checks:** allowed-origin allowlist (exact, `*.subdomain` wildcards, dev localhost). Treated as a *convenience boundary*, not the sole control — Origin is spoofable by non-browser clients.
-- **Encrypted credentials:** Telegram bot tokens encrypted with **Fernet** (`ENCRYPTION_KEY`) before storage; decrypted only at send time.
-- **Hashed API keys:** only the SHA-256 hash of the owner API key is stored; revoked by setting `revoked_at`.
-- **Honeypot:** hidden `website` field; bots that fill it are silently accepted (200) and dropped.
-- **Headers:** HSTS + CSP `frame-ancestors 'none'` on every response.
-- **RLS on by default** in Supabase with no public policies — only the service-role key touches data.
-- **Privacy by design:** message bodies are **never stored** (`save_message` is a no-op); only counts in `site_stats`, and replies only in `pending_replies` until delivered/TTL.
-
-Source: `server/services/signing.py`, `domain.py`, `crypto.py`, `security.py`, `server/routes/messages.py:58-60`, `server/app.py:43-55`, `supabase_schema.sql`.
+- **Signed visitor tokens:** `base64(payload).HMAC-SHA256(secret)` with 15-min TTL; binds token to `(site_id, visitor_id)`.
+- **Origin checks:** allowed-origin allowlist (exact, `*.subdomain` wildcards, dev localhost).
+- **Encrypted credentials:** bot tokens encrypted with **Fernet** (`ENCRYPTION_KEY`) before storage; decrypted only at send time.
+- **Hashed API keys:** only SHA-256 hash stored; revoked by setting `revoked_at`.
+- **Session cookies:** HMAC-signed, httpOnly, SameSite=Lax.
+- **Webhook verification:** Telegram `X-Telegram-Bot-Api-Secret-Token`, Discord Ed25519 signature, Slack `X-Slack-Signature` HMAC.
+- **Rate limiting:** per-IP, per-site, per-visitor sliding windows.
+- **Privacy by design:** message bodies are **never stored** server-side.
 
 ---
 
-### Q9. Why bundle the widget into one JS file + Shadow DOM?
+### Q7. Why bundle the widget into one JS file + Shadow DOM?
 
 **A.**
 
-- **Single `<script>` install** (`<script src=".../widget/pboo.js" data-site="...">`) — trivial for any site.
-- **Shadow DOM** isolates the widget's CSS/HTML from the host page → no style bleed, framework-independent.
-- `build_widget.py` inlines `widget.html`, `styles.css`, and `pboo.js` into `pboo.bundle.js` as `WIDGET_MARKUP`/`WIDGET_STYLES` globals + loader. Edit sources → `python build_widget.py` to regenerate.
+- **Single `<script>` install** — trivial for any site.
+- **Shadow DOM** isolates the widget's CSS/HTML from the host page → no style bleed.
+- `build_widget.py` inlines HTML/CSS/JS into `pboo.bundle.js`. Edit sources → `python build_widget.py` to regenerate.
 
-Source: `server/widget/pboo.js:33-39`, `build_widget.py`.
+Source: `server/widget/pboo.js`, `build_widget.py`.
 
 ---
 
-### Q10. Why did you retire the legacy operator socket in favor of Telegram?
+### Q8. How do you handle multiple channel types?
 
 **A.**
 
-- Owners **already live in Telegram**, so replying there is zero new friction. The previous path had an operator WebSocket (`/ws/operator`) with a `/reply` relay and a `broadcast_owner_status` presence broadcast.
-- We replaced that whole layer with the **Telegram webhook reply path** — fewer moving parts, real push, natural per-visitor inbox.
-- Legacy remains only as dead schema (`operator_token_hash`) and vestigial WS-frame handling; the operator endpoint/tests keep the old response only to confirm it's gone.
-
----
-
-### Q11. What were the recent fixes, and what did you learn?
-
-**A.**
-
-- **Duplicate sends:** repeated `peekaboo connect` runs created multiple identical Telegram integrations, so a message was forwarded once per integration (the "5+ texts" bug). **Fix:** `webhook_register` now **upserts** — one Telegram integration per site — and configures Telegram *before* persisting so a failed setup neither wipes a working integration nor leaves a half-written row.
-- **Stale-thread 502:** a deleted topic left a stale `telegram_thread_id`; `deliver` failed instead of recovering. **Fix:** auto-recreate the topic and retry once.
-- **Topic naming:** `visitor_name` was empty-string from Pydantic, so `or "New conversation"` always fell back. **Fix:** strip the name; fall back only when truly empty. The message body now shows just the raw text; the identity lives in the topic title.
-- **UI glitch + lost transcript:** duplicate send/submit handlers caused jank, and reload wiped the chat. **Fix:** cleaned to a single handler with an animated (non-flicker) name prompt; persisted `visitor_id`, `name`, and the **chat log in `localStorage`** so reloads restore the conversation.
+- **Telegram:** Forum topic per visitor. Webhook with secret token. Dedup by `update_id`.
+- **Discord:** Bot token + channel ID. Ed25519 signature verification. Two-way via interaction endpoint.
+- **Slack:** Bot token + signing secret + channel ID. `X-Slack-Signature` HMAC verification. Events API webhook.
+- **Extensibility:** new channels require one adapter class + registration. No changes to core logic.
 
 ---
 
@@ -167,44 +133,53 @@ flowchart TD
     subgraph SERVER["Peekaboo server (FastAPI)"]
         MSG_ROUTE[POST /v1/messages<br/>server/routes/messages.py] -->|validate + origin + rate-limit| DELIVER
         DELIVER[deliver_to_site<br/>server/integrations/router.py] -->|get_or_create_conversation| CONV[(conversations<br/>Supabase/SQLite/Memory)]
-        DELIVER --> TELEG_ADAPTER
-        TELEG_ADAPTER[TelegramAdapter<br/>server/integrations/telegram.py]
+        DELIVER --> TELEGRAM
+        DELIVER --> DISCORD
+        DELIVER --> SLACK
+        
+        TELEGRAM[TelegramAdapter<br/>server/integrations/telegram.py]
+        DISCORD[DiscordAdapter<br/>server/integrations/discord.py]
+        SLACK[SlackAdapter<br/>server/integrations/slack.py]
 
-        WS_SOCK[WS /ws/visitor/{site}\nserver/routes/websockets.py] -->|pending replay|-.|PENDING_BUF| PENDING[(pending_replies)]
+        WS_SOCK[WS /ws/visitor/{site}<br/>server/routes/websockets.py] -->|pending replay|-.|PENDING_BUF| PENDING[(pending_replies)]
         WS_SOCK -.->|deliver again to visitor| V
 
-        WEBHOOK[POST /v1/telegram/webhook<br/>server/routes/webhook.py] -->|dedup update_id| UPD[(telegram_updates)]
-        WEBHOOK -->|match integration_id + thread_id| CONV
+        WEBHOOK_T[POST /v1/telegram/webhook<br/>server/routes/webhook.py] -->|dedup update_id| UPD[(telegram_updates)]
+        WEBHOOK_D[POST /v1/discord/webhook<br/>server/routes/webhook_discord.py]
+        WEBHOOK_S[POST /v1/slack/webhook<br/>server/routes/webhook_slack.py]
+        
+        WEBHOOK_T -->|match integration + thread| CONV
+        WEBHOOK_D -->|match integration + channel| CONV
+        WEBHOOK_S -->|match integration + channel| CONV
     end
 
-    subgraph TELEGRAM["Telegram (external)"]
-        TG_GROUP[Topics-enabled group<br/>one forum topic per visitor]
-        OWNER[Owner replies in topic]
+    subgraph EXTERNAL["External channels"]
+        TG[Telegram<br/>Topics-enabled group]
+        DC[Discord<br/>Bot channel]
+        SL[Slack<br/>App channel]
     end
 
-    TELEG_ADAPTER -->|3. createForumTopic / sendMessage<br/>message_thread_id| TG_GROUP
-    OWNER -->|4. reply| TELEG_ADAPTER_2[Telegram push]
-    TELEGRAM -.->|5. X-Telegram-Bot-Api-Secret-Token| WEBHOOK
-    WEBHOOK -->|6. owner.message to open socket| WS_SOCK
-    WEBHOOK -->|6b. enqueue if offline| PENDING
+    TELEGRAM -->|3. createForumTopic / sendMessage| TG
+    DISCORD -->|3. POST /channels/id/messages| DC
+    SLACK -->|3. chat_postMessage| SL
+    
+    TG -.->|4. webhook callback| WEBHOOK_T
+    DC -.->|4. interaction webhook| WEBHOOK_D
+    SL -.->|4. events API| WEBHOOK_S
+    
+    WEBHOOK_T -->|5. owner.message to socket| WS_SOCK
+    WEBHOOK_D -->|5. owner.message to socket| WS_SOCK
+    WEBHOOK_S -->|5. owner.message to socket| WS_SOCK
+    
+    WEBHOOK_T -->|5b. enqueue if offline| PENDING
+    WEBHOOK_D -->|5b. enqueue if offline| PENDING
+    WEBHOOK_S -->|5b. enqueue if offline| PENDING
 
     classDef storage fill:#eef3f5,stroke:#8aa4b0;
     class CONV,PENDING,UPD storage;
     classDef ext fill:#fdf0ea,stroke:#d98a63;
-    class TG_GROUP,OWNER ext;
+    class TG,DC,SL ext;
 ```
-
-**Annotations (step by step):**
-
-| # | What | Where | Why it matters |
-|---|------|-------|----------------|
-| 1 | `visitor.connected` with signed token | `websockets.py:71-79` | Token binds socket to a real `visitor_id`; no raw client-id trust. |
-| 2 | `POST /v1/messages` | `messages.py:39-110` | Size cap, Pydantic + honeypot, origin check, rate limit, delivery, token mint. Body never stored. |
-| 3 | `createForumTopic` + `sendMessage` | `telegram.py:91-133` | One topic per visitor; stale-thread self-heal recreates + retries. |
-| 4 | Owner replies in-topic | `telegram.py` / `webhook.py` | Owner identity = topic title; body is raw text only. |
-| 5 | Webhook callback w/ secret token | `webhook.py:16-44` | Constant-time secret check + `update_id` dedup. |
-| 6 | Push `owner.message` to open socket | `webhook.py:84-104` | Matches only sockets for the correct `conversation_id`. |
-| 6b | Enqueue if offline | `webhook.py:66`, `websockets.py:84-90` | Durable offline delivery; purged on delivery or 7-day TTL. |
 
 ---
 
@@ -214,24 +189,31 @@ flowchart TD
 |---------|------|---------|
 | Visitor widget | `server/widget/pboo.js`, `widget.html`, `styles.css` | Send via fetch, receive via WS, localStorage persistence, Shadow DOM |
 | Widget bundle | `build_widget.py` | Inline HTML/CSS/JS → `pboo.bundle.js` |
-| Receive message | `server/routes/messages.py` | Validate, honeypot, origin, rate-limit, deliver, mint token |
-| Delivery router | `server/integrations/router.py` | Dispatch to adapters; one conversation per site/visitor/integration |
+| Receive message | `server/routes/messages.py` | Validate, honeypot, origin, rate-limit, deliver, mint token + idempotency key |
+| Delivery router | `server/integrations/router.py` | ADAPTERS registry, dispatch to adapters |
 | Telegram adapter | `server/integrations/telegram.py` | Token decrypt, webhook set, topic create, send, stale-thread heal |
+| Discord adapter | `server/integrations/discord.py` | Bot token delivery, Ed25519 signature verification |
+| Slack adapter | `server/integrations/slack.py` | Bot token delivery, HMAC signature verification |
 | Telegram webhook | `server/routes/webhook.py` | Secret auth, dedup, route reply back, offline enqueue, GC |
+| Discord webhook | `server/routes/webhook_discord.py` | Ed25519 verification, route replies |
+| Slack webhook | `server/routes/webhook_slack.py` | HMAC verification, route replies |
 | Visitor WebSocket | `server/routes/websockets.py` | Token auth, socket registry, pending replay, WS rate limit |
-| Owner webhook register | `server/routes/webhook_register.py` | Upsert one integration per site; configure-before-persist |
+| Owner dashboard | `server/routes/dashboard.py` | Web-only setup, channel management, snippet copy |
+| Dashboard templates | `server/site/dashboard/` | login, welcome, index, site HTML |
+| Session cookies | `server/services/session.py` | HMAC-signed cookies for owner auth |
 | Storage interface | `server/services/base_storage.py`, `storage.py` | Pluggable backends + facade |
 | Backends | `memory_storage.py`, `sqlite_storage.py`, `supabase_storage.py` | Memory / SQLite / Supabase |
-| Auth | `server/routes/auth.py`, `services/auth.py` | OAuth (PKCE) + hashed API keys |
-| Schema | `supabase_schema.sql` | sites, integrations, conversations, telegram_updates, pending_replies, site_stats, RLS |
-| Security | `services/signing.py`, `domain.py`, `crypto.py`, `security.py` | Tokens, origins, Fernet, key hashing |
+| Auth | `server/routes/auth.py` | OAuth (PKCE) + API key login + session cookies |
+| Schema | `supabase_schema.sql` | sites, owners, integrations, conversations, pending_replies, RLS |
+| Security | `services/signing.py`, `domain.py`, `crypto.py`, `security.py`, `session.py` | Tokens, origins, Fernet, key hashing, session cookies |
 | Rate limit | `services/ratelimit.py`, `server/state.py` | Sliding-window limiter |
 
 ---
 
-## Gotchas / things I'd improve (for depth)
+## Gotchas / things to improve
 
 - **Rate limiter is process-local** — first thing to move to Redis before scaling workers.
 - **Message bodies are never stored** (privacy win) — the trade-off is there's **no server-side history**, so a brand-new device can't fetch old conversations; only the browser's `localStorage` holds them.
-- **Topic is named "New conversation"** whenever a visitor skips the optional name prompt — by design (non-blocking), but the owner can rename the topic in Telegram.
-- **Requires a topics-enabled supergroup** and the bot as a member — `createForumTopic` fails cleanly otherwise (we fail closed rather than emit a stray threadless message).
+- **Telegram requires a topics-enabled supergroup** — `createForumTopic` fails cleanly otherwise.
+- **Discord interactions endpoint** — bot owner must manually paste the webhook URL in the Discord developer portal after saving the integration.
+- **Slack events URL** — bot owner must manually paste the webhook URL in the Slack app config after saving the integration.

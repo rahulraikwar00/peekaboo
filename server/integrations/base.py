@@ -23,9 +23,12 @@ class ConversationRef:
     root_message_id: str = ""
     extra: Dict[str, Any] = field(default_factory=dict)
 
-    @property
     def routing_key(self) -> tuple:
-        """Tuple used to uniquely identify the remote conversation on this integration."""
+        """Tuple used to uniquely identify the remote conversation on this integration.
+
+        Subclasses may override to use fields stored in `conversation["config"]`
+        (e.g. Discord/Slack) instead of `thread_id` on the conversation row.
+        """
         return (self.integration_id, self.destination_id, self.thread_id)
 
 

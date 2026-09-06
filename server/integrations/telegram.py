@@ -3,7 +3,6 @@ import logging
 import httpx
 
 from server.integrations.base import ConversationRef, IntegrationAdapter
-from server.services import storage
 from server.services.crypto import decrypt_credentials
 
 logger = logging.getLogger("peekaboo.telegram")
@@ -94,16 +93,14 @@ class TelegramAdapter(IntegrationAdapter):
         text = format_telegram_message(event)
         conversation_id = conversation["conversation_id"]
         thread_id = conversation.get("telegram_thread_id")
-        new_thread = False
 
         if not thread_id:
             thread_id = await self._create_thread(event)
             if not thread_id:
                 return None
-            new_thread = True
 
         if not await self._send(chat_id, text, thread_id):
-            if new_thread:
+            if not thread_id:
                 return None
             # Stale thread — the topic was deleted or is inaccessible.
             # Recreate a fresh topic for this visitor and retry once.
@@ -114,14 +111,8 @@ class TelegramAdapter(IntegrationAdapter):
             thread_id = await self._create_thread(event)
             if not thread_id:
                 return None
-            new_thread = True
             if not await self._send(chat_id, text, thread_id):
                 return None
-
-        if new_thread:
-            storage.update_conversation_integration_ref(
-                conversation_id, integration_id, thread_id
-            )
 
         return ConversationRef(
             site_id=self.integration["site_id"],

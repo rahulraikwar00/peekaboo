@@ -49,7 +49,7 @@ def test_register_webhook_validates_body(monkeypatch):
 
 
 def test_register_webhook_requires_public_url(monkeypatch):
-    monkeypatch.setenv("PUBLIC_BASE_URL", "")
+    monkeypatch.delenv("PEEKABOO_SERVER_URL", raising=False)
     async def _ok(self, url, secret):
         return True
     monkeypatch.setattr(TelegramAdapter, "set_webhook", _ok)
@@ -82,7 +82,7 @@ def test_register_webhook_is_forbidden_for_other_owner(monkeypatch):
 
 
 def test_register_webhook_success_and_rollback_on_failure(monkeypatch):
-    monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.test")
+    monkeypatch.setenv("PEEKABOO_SERVER_URL", "https://example.test")
     monkeypatch.setenv(
         "ENCRYPTION_KEY",
         "M0gU7ZvT1wQ2fVz1rT2gB3jZ4lH5kL6mN7oP8qR9sT0=",

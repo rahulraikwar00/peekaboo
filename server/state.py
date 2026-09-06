@@ -4,6 +4,9 @@ sites = {}
 # key_hash -> {"owner_id": str, "revoked": bool} for in-memory mode
 owner_api_keys = {}
 
+# (provider, email) -> owner record
+owners = {}
+
 # site_id -> connected visitors
 visitors = {}
 

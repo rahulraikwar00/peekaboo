@@ -39,6 +39,27 @@ class SupabaseStorage(Storage):
         )
         return bool(result.data)
 
+    def upsert_owner(self, email: str, provider: str) -> str:
+        result = (
+            self.db.table("owners")
+            .select("owner_id")
+            .eq("email", email)
+            .eq("provider", provider)
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]["owner_id"]
+        # Insert; the default gen_random_uuid() fills owner_id in the DB.
+        result = (
+            self.db.table("owners")
+            .insert({"email": email, "provider": provider})
+            .execute()
+        )
+        if not result.data:
+            raise RuntimeError("Could not create owner row")
+        return result.data[0]["owner_id"]
+
     # --- sites ---
     def site_exists(self, site_id) -> bool:
         result = (
@@ -165,16 +186,35 @@ class SupabaseStorage(Storage):
         return result.data[0] if result.data else None
 
     def get_conversation_by_integration_thread(self, site_id, integration_id, thread_id):
+        thread_str = str(thread_id)
+        # First, the column-based path (Telegram).
         result = (
             self.db.table("conversations")
             .select("*")
             .eq("site_id", site_id)
             .eq("integration_id", integration_id)
-            .eq("telegram_thread_id", str(thread_id))
+            .eq("telegram_thread_id", thread_str)
             .limit(1)
             .execute()
         )
-        return result.data[0] if result.data else None
+        if result.data:
+            return self._normalize_conversation(result.data[0])
+        # Fall back to jsonb config lookup (Discord/Slack).
+        result = (
+            self.db.table("conversations")
+            .select("*")
+            .eq("site_id", site_id)
+            .eq("integration_id", integration_id)
+            .not_.is_("config", None)
+            .execute()
+        )
+        for row in result.data or []:
+            cfg = row.get("config") or {}
+            if not isinstance(cfg, dict):
+                continue
+            if cfg.get("thread_id") == thread_str or cfg.get("ts") == thread_str:
+                return self._normalize_conversation(row)
+        return None
 
     def get_or_create_conversation(self, site_id, visitor_id, integration_id):
         result = (
@@ -192,7 +232,7 @@ class SupabaseStorage(Storage):
                 {"last_activity_at": "now()", "integration_id": integration_id}
             ).eq("conversation_id", conv["conversation_id"]).execute()
             conv["integration_id"] = integration_id
-            return conv
+            return self._normalize_conversation(conv)
         conversation_id = "conv_" + secrets.token_urlsafe(16)
         self.db.table("conversations").insert(
             {
@@ -200,6 +240,7 @@ class SupabaseStorage(Storage):
                 "site_id": site_id,
                 "visitor_id": visitor_id,
                 "integration_id": integration_id,
+                "config": {},
                 "last_activity_at": "now()",
             }
         ).execute()
@@ -208,6 +249,7 @@ class SupabaseStorage(Storage):
             "site_id": site_id,
             "visitor_id": visitor_id,
             "integration_id": integration_id,
+            "config": {},
         }
 
     def update_conversation_integration_ref(self, conversation_id, integration_id, thread_id):
@@ -218,6 +260,35 @@ class SupabaseStorage(Storage):
                 "last_activity_at": "now()",
             }
         ).eq("conversation_id", conversation_id).execute()
+
+    def update_conversation_provider_config(self, conversation_id, **fields):
+        # Merge into existing config jsonb without clobbering other keys.
+        result = (
+            self.db.table("conversations")
+            .select("config")
+            .eq("conversation_id", conversation_id)
+            .limit(1)
+            .execute()
+        )
+        cfg = {}
+        if result.data and isinstance(result.data[0].get("config"), dict):
+            cfg = dict(result.data[0]["config"])
+        for k, v in fields.items():
+            if v is None:
+                continue
+            cfg[k] = v
+        self.db.table("conversations").update(
+            {"config": cfg, "last_activity_at": "now()"}
+        ).eq("conversation_id", conversation_id).execute()
+
+    @staticmethod
+    def _normalize_conversation(row):
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("config") is None:
+            d["config"] = {}
+        return d
 
     def create_conversation(self, conversation_id, site_id, visitor_id):
         self.db.table("conversations").insert(

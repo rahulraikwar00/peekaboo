@@ -25,6 +25,13 @@ CREATE TABLE IF NOT EXISTS sites (
   widget_config TEXT,
   created_at TEXT
 );
+CREATE TABLE IF NOT EXISTS owners (
+  owner_id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  created_at TEXT,
+  UNIQUE(email, provider)
+);
 CREATE TABLE IF NOT EXISTS owner_api_keys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_id TEXT NOT NULL,
@@ -51,6 +58,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   integration_id TEXT,
   telegram_chat_id TEXT,
   telegram_thread_id TEXT,
+  config TEXT,
   created_at TEXT,
   last_activity_at TEXT
 );
@@ -127,6 +135,27 @@ class SqliteStorage(Storage):
                 )
                 conn.commit()
                 return cur.rowcount > 0
+            finally:
+                conn.close()
+
+    def upsert_owner(self, email: str, provider: str) -> str:
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                row = conn.execute(
+                    "SELECT owner_id FROM owners WHERE email=? AND provider=?",
+                    (email, provider),
+                ).fetchone()
+                if row:
+                    return row["owner_id"]
+                owner_id = "own_" + secrets.token_urlsafe(12)
+                conn.execute(
+                    "INSERT INTO owners(owner_id, email, provider, created_at) "
+                    "VALUES (?,?,?,datetime('now'))",
+                    (owner_id, email, provider),
+                )
+                conn.commit()
+                return owner_id
             finally:
                 conn.close()
 
@@ -364,12 +393,29 @@ class SqliteStorage(Storage):
         with self._lock:
             conn = _conn(self.db_path)
             try:
+                # First try the telegram path (column-based).
                 row = conn.execute(
                     "SELECT * FROM conversations WHERE site_id=? AND integration_id=? "
                     "AND telegram_thread_id=?",
                     (site_id, integration_id, str(thread_id)),
                 ).fetchone()
-                return self._conversation_dict(row) if row else None
+                if row:
+                    return self._conversation_dict(row)
+                # Fall back to jsonb config lookup (Discord/Slack use it).
+                thread_str = str(thread_id)
+                rows = conn.execute(
+                    "SELECT * FROM conversations WHERE site_id=? AND integration_id=? "
+                    "AND config IS NOT NULL",
+                    (site_id, integration_id),
+                ).fetchall()
+                for r in rows:
+                    conv = self._conversation_dict(r)
+                    cfg = conv.get("config") or {}
+                    if not isinstance(cfg, dict):
+                        continue
+                    if cfg.get("thread_id") == thread_str or cfg.get("ts") == thread_str:
+                        return conv
+                return None
             finally:
                 conn.close()
 
@@ -417,6 +463,30 @@ class SqliteStorage(Storage):
                     "telegram_chat_id=?, last_activity_at=datetime('now') WHERE conversation_id=?",
                     (integration_id, str(thread_id) if thread_id is not None else None,
                      None, conversation_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def update_conversation_provider_config(self, conversation_id, **fields):
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                row = conn.execute(
+                    "SELECT config FROM conversations WHERE conversation_id=?",
+                    (conversation_id,),
+                ).fetchone()
+                cfg = {}
+                if row and row["config"]:
+                    try:
+                        cfg = json.loads(row["config"])
+                    except Exception:
+                        cfg = {}
+                cfg.update({k: v for k, v in fields.items() if v is not None})
+                conn.execute(
+                    "UPDATE conversations SET config=?, last_activity_at=datetime('now') "
+                    "WHERE conversation_id=?",
+                    (json.dumps(cfg) if cfg else None, conversation_id),
                 )
                 conn.commit()
             finally:
@@ -529,4 +599,14 @@ class SqliteStorage(Storage):
         return d
 
     def _conversation_dict(self, row):
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("config"):
+            try:
+                d["config"] = json.loads(d["config"])
+            except Exception:
+                d["config"] = {}
+        else:
+            d["config"] = {}
+        return d
