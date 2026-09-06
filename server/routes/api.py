@@ -204,6 +204,10 @@ async def add_integration(request: Request, site_id: str):
         chat_id = str(payload.get("chat_id") or "").strip()
         if not token or not chat_id:
             return _err("Bot token and chat ID are required", 400)
+        if not base.startswith("https://"):
+            from server.integrations.telegram import webhook_error_hint
+
+            return _err(webhook_error_hint("webhook URL must use HTTPS"), 400)
         webhook_secret = secrets.token_urlsafe(32)
         record = {
             "integration_id": integration_id,
@@ -218,7 +222,12 @@ async def add_integration(request: Request, site_id: str):
         if adapter is None or not await adapter.set_webhook(
             f"{base}/v1/telegram/webhook", webhook_secret
         ):
-            return _err("Telegram webhook setup failed. Check your bot token.", 400)
+            from server.integrations.telegram import webhook_error_hint
+
+            detail = webhook_error_hint(
+                getattr(adapter, "last_error", None) if adapter is not None else None
+            )
+            return _err(f"Telegram webhook setup failed. {detail}", 400)
         storage.insert_integration(record)
         return {
             "integration_id": integration_id,
