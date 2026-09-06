@@ -28,8 +28,7 @@ def spa_index_response() -> HTMLResponse:
     if html is not None:
         return HTMLResponse(html)
     return HTMLResponse(
-        "Frontend not built yet. Run `npm run build` in frontend/, "
-        "or use /auth/login for the classic dashboard.",
+        "Frontend not built yet. Run `npm run build` in frontend/.",
         status_code=404,
     )
 
