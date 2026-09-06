@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.requests import Request
 
-from server.config import SITE_ROOT, WIDGET_ROOT
+from server.config import WIDGET_ROOT
 from server.routes import (
     api,
     auth,
@@ -27,7 +27,6 @@ def create_app():
         allow_headers=["*"],
     )
     app.mount("/widget", StaticFiles(directory=WIDGET_ROOT), name="widget")
-    app.mount("/site", StaticFiles(directory=SITE_ROOT), name="site")
     for router in (
         core.router,
         api.router,

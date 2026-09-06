@@ -9,7 +9,6 @@ from server.config import (
     RATE_WINDOW_SECONDS,
     SITE_CREATION_WINDOW_SECONDS,
     SITE_ID_BYTES,
-    SITE_ROOT,
     WIDGET_ROOT,
     logger,
     public_base_url as _public_base_url,

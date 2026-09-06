@@ -11,7 +11,6 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 WIDGET_ROOT = BASE_DIR / "widget"
-SITE_ROOT = BASE_DIR / "site"
 
 MAX_MESSAGE_BYTES = 4096
 MAX_VISITORS_PER_SITE = 1000

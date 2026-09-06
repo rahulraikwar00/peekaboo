@@ -25,7 +25,6 @@ from server.services.storage import (
     get_owner_id_from_api_key,
     insert_owner_api_key,
 )
-from server.templates import render_site_page
 
 router = APIRouter()
 
@@ -36,17 +35,11 @@ def _pending_oauth():
 
 
 def _post_login_redirect(api_key: str = ""):
-    """After login, land on the SPA dashboard when the frontend is built,
-    otherwise on the legacy one-time API-key page."""
-    from server.routes.spa import spa_index_html
-
-    if spa_index_html() is not None:
-        url = "/dashboard"
-        if api_key:
-            url += f"?welcome=1&key={api_key}"
-        return RedirectResponse(url=url, status_code=303)
-    query = f"?key={api_key}" if api_key else ""
-    return RedirectResponse(url=f"/auth/welcome{query}", status_code=303)
+    """After login, land on the SPA dashboard."""
+    url = "/dashboard"
+    if api_key:
+        url += f"?welcome=1&key={api_key}"
+    return RedirectResponse(url=url, status_code=303)
 
 
 def _persist_owner(provider: str, email: str) -> str:
@@ -66,24 +59,9 @@ def _mint_api_key(owner_id: str) -> str:
 
 
 @router.get("/auth/login", response_class=HTMLResponse)
-async def auth_login_page(request: Request):
-    # The SPA owns the login screen; fall back to the classic page only when
-    # the frontend has not been built.
-    from server.routes.spa import spa_index_html
-
-    if spa_index_html() is not None:
-        return RedirectResponse(url="/login", status_code=303)
-
-    providers = []
-    if os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
-        providers.append("google")
-    if os.getenv("GITHUB_CLIENT_ID") and os.getenv("GITHUB_CLIENT_SECRET"):
-        providers.append("github")
-    return render_site_page(
-        "dashboard/login.html",
-        base_url=public_base_url(request),
-        providers=",".join(providers),
-    )
+async def auth_login_page():
+    # The SPA owns the login screen.
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @router.post("/auth/login")
@@ -174,12 +152,7 @@ async def auth_welcome(request: Request):
     """One-time API-key interstitial. The SPA shows the key in a dialog."""
     if owner_from_request(request) is None:
         return RedirectResponse(url="/auth/login", status_code=303)
-    from server.routes.spa import spa_index_html
-
-    if spa_index_html() is not None:
-        return _post_login_redirect(request.query_params.get("key", ""))
-    key = request.query_params.get("key", "")
-    return render_site_page("dashboard/welcome.html", api_key=key)
+    return _post_login_redirect(request.query_params.get("key", ""))
 
 
 @router.post("/auth/logout")
