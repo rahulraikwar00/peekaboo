@@ -8,12 +8,16 @@ The router looks up an adapter by the integration's provider and delegates
 
 import httpx
 
+from server.integrations.discord import DiscordAdapter
+from server.integrations.slack import SlackAdapter
 from server.integrations.telegram import TelegramAdapter
 from server.services import storage
 
 
 ADAPTERS: dict[str, type] = {
     "telegram": TelegramAdapter,
+    "discord": DiscordAdapter,
+    "slack": SlackAdapter,
 }
 
 

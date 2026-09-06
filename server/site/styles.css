@@ -538,18 +538,39 @@ footer a {
 .channel-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 10px 14px;
   border: 1px solid var(--line);
   background: var(--paper);
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.status-dot.active {
+  background: #22c55e;
+}
+.status-dot.paused {
+  background: #a1a1aa;
 }
 .channel-row .provider {
   font: 600 13px system-ui, sans-serif;
   text-transform: capitalize;
 }
-.channel-row .status {
+.channel-row .channel-dest {
+  font: 12px/1.4 monospace;
   color: var(--muted);
+}
+.channel-row .status {
   font: 12px system-ui, sans-serif;
+}
+.channel-row .status-active {
+  color: #166534;
+}
+.channel-row .status-paused {
+  color: var(--muted);
 }
 .channel-row form {
   margin-left: auto;
@@ -559,6 +580,35 @@ footer a {
 .channel-row button {
   font-size: 11px;
   padding: 4px 8px;
+}
+.channel-row button.danger {
+  background: transparent;
+  border: 1px solid #ef4444;
+  color: #ef4444;
+}
+.channel-row button.danger:hover {
+  background: #ef4444;
+  color: #fff;
+}
+
+/* ── Stats ──────────────────────────────────────────────────────── */
+.stats-row {
+  display: flex;
+  gap: 24px;
+  margin-top: 12px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-value {
+  font: 600 20px/1 system-ui, sans-serif;
+  color: var(--ink);
+}
+.stat-label {
+  font: 12px system-ui, sans-serif;
+  color: var(--muted);
 }
 
 /* ── Flash messages ─────────────────────────────────────────────── */

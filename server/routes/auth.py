@@ -35,6 +35,20 @@ def _pending_oauth():
     return pending_oauth
 
 
+def _post_login_redirect(api_key: str = ""):
+    """After login, land on the SPA dashboard when the frontend is built,
+    otherwise on the legacy one-time API-key page."""
+    from server.routes.spa import spa_index_html
+
+    if spa_index_html() is not None:
+        url = "/dashboard"
+        if api_key:
+            url += f"?welcome=1&key={api_key}"
+        return RedirectResponse(url=url, status_code=303)
+    query = f"?key={api_key}" if api_key else ""
+    return RedirectResponse(url=f"/auth/welcome{query}", status_code=303)
+
+
 def _persist_owner(provider: str, email: str) -> str:
     """Create or look up an owner by email; return owner_id."""
     from server.services.storage import get_storage
@@ -53,6 +67,13 @@ def _mint_api_key(owner_id: str) -> str:
 
 @router.get("/auth/login", response_class=HTMLResponse)
 async def auth_login_page(request: Request):
+    # The SPA owns the login screen; fall back to the classic page only when
+    # the frontend has not been built.
+    from server.routes.spa import spa_index_html
+
+    if spa_index_html() is not None:
+        return RedirectResponse(url="/login", status_code=303)
+
     providers = []
     if os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
         providers.append("google")
@@ -93,9 +114,7 @@ async def oauth_start(request: Request, provider: str):
     if get_supabase_client() is None:
         owner_id = _persist_owner(provider, f"{provider}-local@peekaboo.local")
         api_key = _mint_api_key(owner_id)
-        response = RedirectResponse(
-            url=f"/auth/welcome?state={state}&key={api_key}", status_code=303
-        )
+        response = _post_login_redirect(api_key)
         response.headers.append("Set-Cookie", make_session_cookie(owner_id))
         return response
 
@@ -145,18 +164,20 @@ async def oauth_callback(request: Request):
 
     owner_id = _persist_owner("google" if "google" in (state or "") else "github", email)
     api_key = _mint_api_key(owner_id)
-    response = RedirectResponse(
-        url=f"/auth/welcome?key={api_key}", status_code=303
-    )
+    response = _post_login_redirect(api_key)
     response.headers.append("Set-Cookie", make_session_cookie(owner_id))
     return response
 
 
 @router.get("/auth/welcome", response_class=HTMLResponse)
 async def auth_welcome(request: Request):
-    """Interstitial: shows the freshly-minted API key exactly once."""
+    """One-time API-key interstitial. The SPA shows the key in a dialog."""
     if owner_from_request(request) is None:
         return RedirectResponse(url="/auth/login", status_code=303)
+    from server.routes.spa import spa_index_html
+
+    if spa_index_html() is not None:
+        return _post_login_redirect(request.query_params.get("key", ""))
     key = request.query_params.get("key", "")
     return render_site_page("dashboard/welcome.html", api_key=key)
 

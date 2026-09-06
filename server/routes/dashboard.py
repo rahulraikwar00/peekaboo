@@ -23,12 +23,16 @@ from server.templates import render_site_page
 router = APIRouter()
 
 FLASH_MESSAGES = {
+    "site_created": ("success", "Site created. Add a channel to start receiving messages."),
     "missing_telegram_fields": ("error", "Bot token and chat ID are required for Telegram."),
     "telegram_setup_failed": ("error", "Telegram webhook setup failed. Check your bot token."),
+    "telegram_added": ("success", "Telegram webhook registered. Send a test message to verify."),
     "missing_discord_fields": ("error", "Bot token, channel ID, and public key are required for Discord."),
     "discord_added": ("success", "Discord channel added. Set your Interactions Endpoint URL in the developer portal."),
     "missing_slack_fields": ("error", "Bot token, signing secret, and channel ID are required for Slack."),
     "slack_added": ("success", "Slack channel added. Set your Event Subscriptions Request URL in the Slack app settings."),
+    "channel_toggled": ("success", "Channel status updated."),
+    "channel_removed": ("success", "Channel removed."),
 }
 
 
@@ -68,23 +72,36 @@ def _render_channels_list(integrations: list, site_id: str) -> str:
         iid = ch.get("integration_id", "")
         provider = ch.get("provider", "unknown")
         enabled = ch.get("enabled", False)
-        status = "Active" if enabled else "Paused"
+        dest = ch.get("destination_id", "")
+        status_class = "active" if enabled else "paused"
+        status_label = "Active" if enabled else "Paused"
         toggle_val = "0" if enabled else "1"
         toggle_label = "Pause" if enabled else "Resume"
+        dest_display = _mask_id(dest)
         rows.append(
             f'<div class="channel-row">'
+            f'<span class="status-dot {status_class}" aria-label="{status_label}"></span>'
             f'<span class="provider">{provider}</span>'
-            f'<span class="status">{status}</span>'
+            f'<span class="channel-dest">{dest_display}</span>'
+            f'<span class="status">{status_label}</span>'
             f'<form method="post" action="/dashboard/sites/{site_id}/channels/{iid}/enable">'
             f'<input type="hidden" name="enabled" value="{toggle_val}" />'
             f'<button type="submit">{toggle_label}</button>'
             f'</form>'
             f'<form method="post" action="/dashboard/sites/{site_id}/channels/{iid}/remove">'
-            f'<button type="submit" onclick="return confirm(\'Remove this channel?\')">Remove</button>'
+            f'<button type="submit" class="danger" onclick="return confirm(\'Remove this channel?\')">Remove</button>'
             f'</form>'
             f'</div>'
         )
     return '<div class="channel-list">' + "".join(rows) + "</div>"
+
+
+def _mask_id(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return value
+    return value[:4] + "..." + value[-4:]
 
 
 def _render_flash(flash_code: str) -> str:
@@ -95,6 +112,39 @@ def _render_flash(flash_code: str) -> str:
         return f'<div class="flash info">{flash_code}</div>'
     level, msg = entry
     return f'<div class="flash {level}">{msg}</div>'
+
+
+def _render_stats(stats: dict) -> str:
+    if not stats:
+        return ""
+    msgs = stats.get("messages_received", 0)
+    replies = stats.get("replies_sent", 0)
+    last = stats.get("last_message_at")
+    last_display = _format_time(last) if last else "Never"
+    return (
+        f'<div class="stats-row">'
+        f'<div class="stat"><span class="stat-value">{msgs}</span><span class="stat-label">Messages</span></div>'
+        f'<div class="stat"><span class="stat-value">{replies}</span><span class="stat-label">Replies</span></div>'
+        f'<div class="stat"><span class="stat-value">{last_display}</span><span class="stat-label">Last message</span></div>'
+        f'</div>'
+    )
+
+
+def _format_time(iso_str: str) -> str:
+    from datetime import datetime, timezone
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        if diff.total_seconds() < 60:
+            return "Just now"
+        if diff.total_seconds() < 3600:
+            return f"{int(diff.total_seconds() // 60)}m ago"
+        if diff.total_seconds() < 86400:
+            return f"{int(diff.total_seconds() // 3600)}h ago"
+        return dt.strftime("%b %d")
+    except Exception:
+        return str(iso_str)[:10]
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -142,12 +192,14 @@ async def dashboard_site_detail(site_id: str, request: Request):
     if not site:
         return PlainTextResponse("Site not found", status_code=404)
     integrations = storage.list_integrations(site_id)
+    stats = storage.get_site_stats(site_id)
     base = public_base_url(request)
     snippet = (
         f'<script src="{base}/widget/pboo.bundle.js" '
         f'data-site="{site_id}"></script>'
     )
     flash_code = request.query_params.get("flash", "")
+    stats_html = _render_stats(stats)
     return render_site_page(
         "dashboard/site.html",
         site_id=site_id,
@@ -155,6 +207,7 @@ async def dashboard_site_detail(site_id: str, request: Request):
         snippet=snippet,
         base_url=base,
         flash=_render_flash(flash_code),
+        stats=stats_html,
     )
 
 
@@ -202,7 +255,7 @@ async def dashboard_add_channel(site_id: str, request: Request):
                 status_code=303,
             )
         storage.insert_integration(record)
-        return RedirectResponse(url=f"/dashboard/sites/{site_id}", status_code=303)
+        return RedirectResponse(url=f"/dashboard/sites/{site_id}?flash=telegram_added", status_code=303)
 
     if provider == "discord":
         bot_token = str(form.get("bot_token") or "").strip()
@@ -278,7 +331,7 @@ async def dashboard_toggle_channel(site_id: str, integration_id: str, request: R
     form = await request.form()
     enabled = str(form.get("enabled") or "").lower() in {"1", "true", "on"}
     storage.update_integration(site_id, integration_id, {"enabled": enabled})
-    return RedirectResponse(url=f"/dashboard/sites/{site_id}", status_code=303)
+    return RedirectResponse(url=f"/dashboard/sites/{site_id}?flash=channel_toggled", status_code=303)
 
 
 @router.post("/dashboard/sites/{site_id}/channels/{integration_id}/remove")
@@ -290,4 +343,4 @@ async def dashboard_remove_channel(site_id: str, integration_id: str, request: R
     if not site:
         return PlainTextResponse("Site not found", status_code=404)
     storage.delete_integration(site_id, integration_id)
-    return RedirectResponse(url=f"/dashboard/sites/{site_id}", status_code=303)
+    return RedirectResponse(url=f"/dashboard/sites/{site_id}?flash=channel_removed", status_code=303)

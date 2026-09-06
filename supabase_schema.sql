@@ -7,6 +7,10 @@ create table if not exists public.sites (
   created_at timestamptz not null default now()
 );
 
+-- operator_token_hash is nullable: the web dashboard never issues operator
+-- tokens, and forcing NOT NULL broke site creation via the dashboard API.
+alter table public.sites alter column operator_token_hash drop not null;
+
 alter table public.sites add column if not exists allowed_origin text;
 alter table public.sites add column if not exists owner_id uuid;
 
