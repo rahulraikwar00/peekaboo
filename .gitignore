@@ -22,3 +22,8 @@ cli/.peekaboo/
 .pytest_cache/
 .vscode/
 .DS_Store
+
+# Frontend build output and deps
+frontend/node_modules/
+frontend/dist/
+frontend/*.local

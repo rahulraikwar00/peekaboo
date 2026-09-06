@@ -86,9 +86,11 @@ async def register_webhook(site_id: str, request: Request):
         f"{public_base}/v1/telegram/webhook", webhook_secret
     )
     if not configured:
+        from server.integrations.telegram import webhook_error_hint
+
+        detail = webhook_error_hint(getattr(adapter, "last_error", None))
         return PlainTextResponse(
-            "Could not register the Telegram webhook. Check the bot token "
-            "and add the bot to a topics-enabled group chat.",
+            f"Could not register the Telegram webhook. {detail}",
             status_code=502,
         )
 

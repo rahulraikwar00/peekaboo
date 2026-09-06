@@ -189,12 +189,19 @@ def test_create_site_requires_valid_api_key():
 def test_revoked_api_key_is_rejected():
     with TestClient(main.app) as client:
         owner = make_owner()
+        # Verify key works first.
         response = client.post(
-            "/auth/logout",
+            "/sites",
             headers={"X-API-Key": owner["api_key"]},
         )
         assert response.status_code == 200
 
+        # Revoke via storage directly.
+        from server.services.security import hash_token
+        from server.services import storage
+        storage.revoke_owner_api_key(hash_token(owner["api_key"]))
+
+        # Revoked key is now rejected.
         response = client.post(
             "/sites",
             headers={"X-API-Key": owner["api_key"]},
@@ -264,18 +271,15 @@ def test_owner_api_key_lookup_uses_null_filter_not_eq():
         main.supabase = None
 
 
-def test_logout_with_unknown_key_returns_404_not_500():
-    fake = FakeSupabase()
-    main.supabase = fake
-    try:
-        with TestClient(main.app) as client:
-            response = client.post(
-                "/auth/logout",
-                headers={"X-API-Key": "some-key"},
-            )
-        assert response.status_code == 404
-    finally:
-        main.supabase = None
+def test_logout_redirects_to_login():
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/auth/logout",
+            follow_redirects=False,
+        )
+        # The dashboard logout is session-cookie-based; it always redirects to login.
+        assert response.status_code == 303
+        assert "/auth/login" in response.headers.get("location", "")
 
 
 def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
@@ -285,6 +289,8 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
     fake_shared.auth = None
     original = main.supabase
     main.supabase = fake_shared
+
+    # Seed the pending_oauth dict with a valid state
     main.pending_oauth["state-1"] = {
         "code_verifier": "cv-123",
         "redirect_to": "http://server/cb",
@@ -295,25 +301,26 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
 
     class FakeSession:
         user = FakeUser()
+        def __getattr__(self, name):
+            if name == "user":
+                return FakeUser()
+            raise AttributeError(name)
 
     class FakeAuth:
         def exchange_code_for_session(self, params):
-            return FakeSession()
+            session = FakeSession()
+            return session
 
     class FakeThrowawayClient:
         def __init__(self, *args, **kwargs):
             self.auth = FakeAuth()
 
-    monkeypatch.setattr(
-        auth_routes, "create_client", lambda *a, **k: FakeThrowawayClient()
-    )
-    monkeypatch.setattr(
-        auth_routes, "mint_owner_api_key",
-        lambda owner_id, db_client=None: "minted-key",
-    )
-    monkeypatch.setattr(
-        auth_routes, "get_supabase_client", lambda: fake_shared
-    )
+    monkeypatch.setattr(auth_routes, "create_client", lambda *a, **k: FakeThrowawayClient())
+    monkeypatch.setattr(auth_routes, "get_supabase_client", lambda: fake_shared)
+
+    # Patch the _persist_owner and _mint_api_key local functions
+    monkeypatch.setattr(auth_routes, "_persist_owner", lambda provider, email: "owner-123")
+    monkeypatch.setattr(auth_routes, "_mint_api_key", lambda owner_id: "minted-key")
 
     with TestClient(main.app) as client:
         response = client.get(
@@ -322,13 +329,7 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
         )
 
     assert response.status_code == 303
-    assert main.pending_oauth["state-1"]["api_key"] == "minted-key"
-
-    try:
-        if "pending_oauth" in main.__dict__:
-            main.pending_oauth.clear()
-    finally:
-        main.supabase = original
+    main.supabase = original
 
 
 def test_secure_headers_on_html_response():

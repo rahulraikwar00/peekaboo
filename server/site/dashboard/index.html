@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard · Peekaboo</title>
+    <link rel="stylesheet" href="/site/styles.css" />
+  </head>
+  <body class="dashboard">
+    <a href="#main" class="skip-link">Skip to main content</a>
+    <nav class="topnav shell">
+      <a class="brand" href="/dashboard">peekaboo<span>.</span></a>
+      <form method="post" action="/auth/logout">
+        <button class="link" type="submit">Log out</button>
+      </form>
+    </nav>
+
+    <main class="shell" id="main">
+      <h1>Your sites</h1>
+
+      <section class="card panel">
+        <h2>Create a new site</h2>
+        <form method="post" action="/dashboard/sites">
+          <label for="origins">Website origins (comma-separated, e.g. <code>https://yourwebsite.com</code>)</label>
+          <textarea id="origins" name="origins" rows="2" placeholder="https://yourwebsite.com"></textarea>
+          <button type="submit">Create site</button>
+        </form>
+      </section>
+
+      {% raw sites_list %}
+    </main>
+  </body>
+</html>

@@ -17,6 +17,10 @@ class Storage(ABC):
     def revoke_owner_api_key(self, api_key_hash) -> bool:
         ...
 
+    @abstractmethod
+    def upsert_owner(self, email: str, provider: str) -> str:
+        """Create or look up an owner row by (provider, email). Return owner_id."""
+
     # --- sites ---
     @abstractmethod
     def site_exists(self, site_id) -> bool:
@@ -91,6 +95,14 @@ class Storage(ABC):
     @abstractmethod
     def update_conversation_integration_ref(self, conversation_id, integration_id, thread_id):
         """Record the integration-bound handle (e.g. Telegram thread id) for a conversation."""
+
+    @abstractmethod
+    def update_conversation_provider_config(self, conversation_id, **fields):
+        """Merge provider-specific routing fields into conversations.config.
+
+        Used by non-Telegram adapters (Discord, Slack) that store their routing
+        keys in the `config` jsonb instead of dedicated columns.
+        """
 
     @abstractmethod
     def create_conversation(self, conversation_id, site_id, visitor_id) -> str:

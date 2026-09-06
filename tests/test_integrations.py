@@ -165,4 +165,6 @@ def test_telegram_adapter_recreates_stale_thread(monkeypatch):
 
 def test_build_adapter_mapping():
     assert router.build_adapter({"provider": "telegram"}) is not None
-    assert router.build_adapter({"provider": "discord"}) is None
+    assert router.build_adapter({"provider": "discord"}) is not None
+    assert router.build_adapter({"provider": "slack"}) is not None
+    assert router.build_adapter({"provider": "email"}) is None

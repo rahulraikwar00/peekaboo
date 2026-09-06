@@ -1,4 +1,5 @@
 import json
+import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -94,6 +95,7 @@ async def receive_message(request: Request):
         "visitor_id": visitor_key,
         "page": payload.page,
         "referrer": payload.referrer,
+        "idempotency_key": str(uuid.uuid4()),
     }
 
     result = await deliver_to_site(payload.site_id, event, visitor_key)

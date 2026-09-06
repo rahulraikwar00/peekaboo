@@ -7,6 +7,10 @@ create table if not exists public.sites (
   created_at timestamptz not null default now()
 );
 
+-- operator_token_hash is nullable: the web dashboard never issues operator
+-- tokens, and forcing NOT NULL broke site creation via the dashboard API.
+alter table public.sites alter column operator_token_hash drop not null;
+
 alter table public.sites add column if not exists allowed_origin text;
 alter table public.sites add column if not exists owner_id uuid;
 
@@ -73,6 +77,15 @@ drop policy if exists "Enable insert for authenticated users only" on public.con
 -- Peekaboo v2 schema additions
 -- ============================================================
 
+-- owners: created on first OAuth login. owner_id is the foreign key on sites.
+create table if not exists public.owners (
+  owner_id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  provider text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.owners enable row level security;
+
 -- sites: allow an allowlist of origins + widget config
 alter table public.sites add column if not exists allowed_origins jsonb;
 alter table public.sites add column if not exists widget_config jsonb;
@@ -82,6 +95,7 @@ alter table public.conversations add column if not exists integration_id text;
 alter table public.conversations add column if not exists telegram_chat_id text;
 alter table public.conversations add column if not exists telegram_thread_id text;
 alter table public.conversations add column if not exists last_activity_at timestamptz default now();
+alter table public.conversations add column if not exists config jsonb;
 
 -- webhook retry deduplication (Telegram redelivers until acked)
 create table if not exists public.telegram_updates (

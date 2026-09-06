@@ -3,7 +3,6 @@ import logging
 import httpx
 
 from server.integrations.base import ConversationRef, IntegrationAdapter
-from server.services import storage
 from server.services.crypto import decrypt_credentials
 
 logger = logging.getLogger("peekaboo.telegram")
@@ -16,12 +15,32 @@ def format_telegram_message(event: dict) -> str:
     return event.get("message", "").strip()
 
 
+def webhook_error_hint(description: str | None) -> str:
+    """Turn a raw Telegram error description into actionable guidance."""
+    d = (description or "").lower()
+    if not d:
+        return (
+            "The bot token could not be validated. Check the token, confirm "
+            "your server is reachable over HTTPS, then retry."
+        )
+    if "not found" in d or "unauthorized" in d or "token" in d:
+        return "The bot token is invalid. Create a new token with /newbot in @BotFather."
+    if "https" in d or "webhook url" in d or "ssl" in d:
+        return (
+            "Telegram requires an HTTPS webhook URL. Set PEEKABOO_SERVER_URL "
+            "to your public https domain (e.g. your Render URL), or use a "
+            "tunnel such as ngrok for local testing."
+        )
+    return f"Telegram rejected the request: {description}"
+
+
 class TelegramAdapter(IntegrationAdapter):
     provider = "telegram"
 
     def __init__(self, integration: dict, client: httpx.AsyncClient | None = None):
         super().__init__(integration)
         self._client = client
+        self.last_error: str | None = None
 
     def _api(self, method: str) -> str:
         token = decrypt_credentials(self.integration["credentials"])
@@ -52,7 +71,12 @@ class TelegramAdapter(IntegrationAdapter):
         return payload.get("result") or {}
 
     async def set_webhook(self, url: str, secret: str) -> bool:
-        """Point Telegram to our webhook endpoint with the secret token."""
+        """Point Telegram to our webhook endpoint with the secret token.
+
+        On failure the underlying error is stored in ``self.last_error`` and
+        logged, so callers can surface the real reason to the user.
+        """
+        self.last_error = None
         try:
             await self._request(
                 "setWebhook",
@@ -60,7 +84,20 @@ class TelegramAdapter(IntegrationAdapter):
                 secret_token=secret,
                 allowed_updates='["message"]',
             )
-        except Exception:
+        except httpx.HTTPStatusError as exc:
+            desc = ""
+            try:
+                desc = exc.response.json().get("description", "")
+            except Exception:
+                desc = exc.response.text[:200]
+            self.last_error = desc or f"HTTP {exc.response.status_code}"
+            logger.warning(
+                "Telegram setWebhook HTTP %s: %s", exc.response.status_code, desc
+            )
+            return False
+        except Exception as exc:
+            self.last_error = str(exc)
+            logger.warning("Telegram setWebhook failed: %s", exc)
             return False
         return True
 
@@ -94,16 +131,14 @@ class TelegramAdapter(IntegrationAdapter):
         text = format_telegram_message(event)
         conversation_id = conversation["conversation_id"]
         thread_id = conversation.get("telegram_thread_id")
-        new_thread = False
 
         if not thread_id:
             thread_id = await self._create_thread(event)
             if not thread_id:
                 return None
-            new_thread = True
 
         if not await self._send(chat_id, text, thread_id):
-            if new_thread:
+            if not thread_id:
                 return None
             # Stale thread — the topic was deleted or is inaccessible.
             # Recreate a fresh topic for this visitor and retry once.
@@ -114,14 +149,8 @@ class TelegramAdapter(IntegrationAdapter):
             thread_id = await self._create_thread(event)
             if not thread_id:
                 return None
-            new_thread = True
             if not await self._send(chat_id, text, thread_id):
                 return None
-
-        if new_thread:
-            storage.update_conversation_integration_ref(
-                conversation_id, integration_id, thread_id
-            )
 
         return ConversationRef(
             site_id=self.integration["site_id"],
