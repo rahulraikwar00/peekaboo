@@ -8,6 +8,10 @@ services:
     environment:
       STORAGE_BACKEND: ${STORAGE_BACKEND:-sqlite}
       DATABASE_URL: /data/peekaboo.db
+      # Public base used for OAuth redirects and provider webhook URLs
+      # (e.g. Telegram setWebhook). Must be a reachable HTTPS URL:
+      #   - production: https://your-domain
+      #   - local testing: your ngrok/cloudflared https://... tunnel URL
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       WIDGET_SIGNING_SECRET: ${WIDGET_SIGNING_SECRET:-}
@@ -15,5 +19,23 @@ services:
       - peekaboo_data:/data
     command: uvicorn server.main:app --host 0.0.0.0 --port 8000
 
+  # Caddy terminates the Cloudflare -> origin TLS leg (using a Cloudflare
+  # Origin Certificate) and reverse-proxies to the peekaboo container.
+  # Cloudflare SSL mode must be "Full (Strict)".
+  # Origin cert files live in ./caddy/origin.pem and ./caddy/origin.key.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - peekaboo
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/data/caddy:ro
+      - caddy_config:/config
+
 volumes:
   peekaboo_data:
+  caddy_config:

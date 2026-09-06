@@ -28,8 +28,8 @@ def webhook_error_hint(description: str | None) -> str:
     if "https" in d or "webhook url" in d or "ssl" in d:
         return (
             "Telegram requires an HTTPS webhook URL. Set PEEKABOO_SERVER_URL "
-            "to your public https domain (e.g. your Render URL), or use a "
-            "tunnel such as ngrok for local testing."
+            "(or PUBLIC_BASE_URL) to your public https domain (e.g. your Render "
+            "URL), or use a tunnel such as ngrok for local testing."
         )
     return f"Telegram rejected the request: {description}"
 

@@ -57,21 +57,22 @@ else:
 
 
 def public_base_url(request, server_url=None):
-    configured = (os.getenv("PEEKABOO_SERVER_URL") or "").strip()
-    if configured:
-        return configured.rstrip("/")
+    for key in ("PEEKABOO_SERVER_URL", "PUBLIC_BASE_URL"):
+        configured = (os.getenv(key) or "").strip()
+        if configured:
+            return configured.rstrip("/")
     server_url = (server_url or "").strip()
     if server_url:
         return server_url.rstrip("/")
     if request is not None:
         logger.warning(
-            "Neither PEEKABOO_SERVER_URL nor a server_url was provided; falling "
-            "back to request base_url (%s). Set PEEKABOO_SERVER_URL to your public "
-            "domain for correct OAuth redirects.",
+            "Neither PEEKABOO_SERVER_URL nor PUBLIC_BASE_URL nor a server_url was "
+            "provided; falling back to request base_url (%s). Set one of them to "
+            "your public domain for correct OAuth redirects and webhook URLs.",
             str(request.base_url).rstrip("/"),
         )
         return str(request.base_url).rstrip("/")
-    raise RuntimeError("PEEKABOO_SERVER_URL or server_url is not set")
+    raise RuntimeError("PEEKABOO_SERVER_URL or PUBLIC_BASE_URL is not set")
 
 
 def get_supabase_client():
