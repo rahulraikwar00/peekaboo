@@ -1,0 +1,25 @@
+# Big, secret, or generated content — keep the build context lean.
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.agents
+.codex
+
+.env
+.env.example
+
+frontend/node_modules
+frontend/dist
+frontend/*.local
+
+docs
+scripts
+tests
+testweb
+repoli.txt
+repolist.txt
+*.md
+!server/**/*.md

@@ -1,10 +1,9 @@
-import os
 import secrets
 
 from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse
 
-from server.config import INTEGRATION_ID_BYTES
+from server.config import INTEGRATION_ID_BYTES, public_base_url
 from server.integrations.telegram import TelegramAdapter
 from server.services.auth import require_owner
 from server.services.crypto import encrypt_credentials
@@ -41,10 +40,14 @@ async def register_webhook(site_id: str, request: Request):
     if not token or not chat_id:
         return PlainTextResponse("token and chat_id are required", status_code=400)
 
-    public_base = (os.getenv("PEEKABOO_SERVER_URL") or "").strip().rstrip("/")
-    if not public_base:
+    public_base = ""
+    try:
+        public_base = public_base_url(None)
+    except RuntimeError:
         return PlainTextResponse(
-            "PEEKABOO_SERVER_URL is not configured on the server", status_code=500
+            "Neither PEEKABOO_SERVER_URL nor PUBLIC_BASE_URL is configured "
+            "on the server",
+            status_code=500,
         )
 
     encrypted_token = encrypt_credentials(token)

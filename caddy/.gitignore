@@ -1,0 +1,3 @@
+# Cloudflare Origin Certificate — secrets, never commit.
+origin.pem
+origin.key
