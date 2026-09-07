@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,13 +33,79 @@ function GoogleIcon() {
 
 function GithubIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="currentColor"
+      aria-hidden="true"
+    >
       <path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.36-3.88-1.36-.53-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.76.4-1.26.73-1.55-2.55-.3-5.23-1.28-5.23-5.67 0-1.25.45-2.28 1.19-3.08-.12-.3-.52-1.48.11-3.08 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.6.24 2.78.12 3.08.74.8 1.19 1.83 1.19 3.08 0 4.4-2.69 5.37-5.25 5.65.41.36.78 1.06.78 2.14v3.17c0 .3.2.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5Z" />
     </svg>
   );
 }
 
 export function Login() {
+  const [isLoading, setIsLoading] = useState<string | null>(null);
+
+  const openOAuthWindow = (provider: "google" | "github") => {
+    setIsLoading(provider);
+
+    // Popup window dimensions
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+
+    const features = [
+      `width=${width}`,
+      `height=${height}`,
+      `left=${left}`,
+      `top=${top}`,
+      "menubar=no",
+      "toolbar=no",
+      "location=no",
+      "status=no",
+      "scrollbars=yes",
+      "resizable=yes",
+    ].join(",");
+
+    const popup = window.open(
+      `/auth/oauth/start?provider=${provider}`,
+      `${provider}_oauth`,
+      features,
+    );
+
+    if (popup) {
+      // Monitor popup for close or redirect
+      const checkPopup = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkPopup);
+          setIsLoading(null);
+          // Refresh the page to check auth state
+          window.location.href = "/dashboard";
+        } else {
+          try {
+            // Check if popup redirected back to our callback
+            if (popup.location.href.includes("/auth/oauth/callback")) {
+              clearInterval(checkPopup);
+              // Give it a moment to set the cookie
+              setTimeout(() => {
+                popup.close();
+                window.location.href = "/dashboard";
+              }, 2000);
+            }
+          } catch (e) {
+            // Cross-origin - can't access popup location (expected during Google auth)
+          }
+        }
+      }, 500);
+    } else {
+      // Popup blocked - fallback to new tab
+      window.open(`/auth/oauth/start?provider=${provider}`, "_blank");
+      setIsLoading(null);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b">
@@ -55,20 +122,30 @@ export function Login() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button variant="outline" className="w-full" asChild>
-              <a href="/auth/oauth/start?provider=google">
-                <GoogleIcon />
-                Continue with Google
-              </a>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => openOAuthWindow("google")}
+              disabled={isLoading !== null}
+            >
+              <GoogleIcon />
+              {isLoading === "google"
+                ? "Connecting..."
+                : "Continue with Google"}
             </Button>
-            <Button variant="outline" className="w-full" asChild>
-              <a href="/auth/oauth/start?provider=github">
-                <GithubIcon />
-                Continue with GitHub
-              </a>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => openOAuthWindow("github")}
+              disabled={isLoading !== null}
+            >
+              <GithubIcon />
+              {isLoading === "github"
+                ? "Connecting..."
+                : "Continue with GitHub"}
             </Button>
             <p className="pt-1 text-center text-xs text-muted-foreground">
-              You&apos;ll be redirected to authorize Peekaboo.
+              A popup window will open to authorize Peekaboo.
             </p>
           </CardContent>
         </Card>
