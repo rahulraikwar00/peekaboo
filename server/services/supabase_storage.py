@@ -39,6 +39,17 @@ class SupabaseStorage(Storage):
         )
         return bool(result.data)
 
+    def has_active_api_keys(self, owner_id) -> bool:
+        result = (
+            self.db.table("owner_api_keys")
+            .select("key_hash")
+            .eq("owner_id", owner_id)
+            .is_("revoked_at", None)
+            .limit(1)
+            .execute()
+        )
+        return bool(result.data)
+
     def upsert_owner(self, email: str, provider: str) -> str:
         result = (
             self.db.table("owners")

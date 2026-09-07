@@ -6,7 +6,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      STORAGE_BACKEND: ${STORAGE_BACKEND:-sqlite}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-supabase}
       DATABASE_URL: /data/peekaboo.db
       # Public base used for OAuth redirects and provider webhook URLs
       # (e.g. Telegram setWebhook). Must be a reachable HTTPS URL:

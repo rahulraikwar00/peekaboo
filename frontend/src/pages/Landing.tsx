@@ -9,7 +9,7 @@ export function Landing() {
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
           <span className="text-lg font-semibold tracking-tight">Peekaboo</span>
           <Button size="sm" asChild>
-            <Link to="/login">Get started</Link>
+            <Link to="/dashboard">Get started</Link>
           </Button>
         </div>
       </header>
@@ -27,7 +27,7 @@ export function Landing() {
         </p>
         <div className="flex gap-3">
           <Button size="lg" asChild>
-            <Link to="/login">Get started free</Link>
+            <Link to="/dashboard">Get started free</Link>
           </Button>
         </div>
 

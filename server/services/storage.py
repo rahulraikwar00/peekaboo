@@ -59,6 +59,10 @@ def revoke_owner_api_key(key_hash):
     return get_storage().revoke_owner_api_key(key_hash)
 
 
+def has_active_api_keys(owner_id):
+    return get_storage().has_active_api_keys(owner_id)
+
+
 def upsert_owner(email: str, provider: str) -> str:
     return get_storage().upsert_owner(email=email, provider=provider)
 
