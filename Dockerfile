@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: build the owner dashboard SPA (React/Vite).
-FROM node:22-alpine AS frontend
+FROM node:22-alpine.20 AS frontend
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -9,9 +9,9 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: FastAPI backend + prebuilt frontend artifacts.
-FROM python:3.10-slim AS runtime
+FROM python:3.10-slim-bookworm AS runtime
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1                                     
 
 WORKDIR /app
 

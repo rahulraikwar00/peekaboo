@@ -24,19 +24,7 @@ services:
   # Caddy terminates the Cloudflare -> origin TLS leg (using a Cloudflare
   # Origin Certificate) and reverse-proxies to the peekaboo container.
   # Cloudflare SSL mode must be "Full (Strict)".
-  # Origin cert files live in ./caddy/origin.pem and ./caddy/origin.key.
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      - peekaboo
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy:/data/caddy:ro
-      - caddy_config:/config
+  # Origin cert files live in ./caddy/origin.pem and ./caddy/origin.key
 
 volumes:
   peekaboo_data:
