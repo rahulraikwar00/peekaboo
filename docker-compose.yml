@@ -10,22 +10,12 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-supabase}
       DATABASE_URL: /data/peekaboo.db
-      # Public base used for OAuth redirects and provider webhook URLs
-      # (e.g. Telegram setWebhook). Must be a reachable HTTPS URL:
-      #   - production: https://your-domain
-      #   - local testing: your ngrok/cloudflared https://... tunnel URL
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
+      PUBLIC_BASE_URL: "https://peekaboo.iamrahulraikwar.online"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       WIDGET_SIGNING_SECRET: ${WIDGET_SIGNING_SECRET:-}
     volumes:
       - peekaboo_data:/data
     command: uvicorn server.main:app --host 0.0.0.0 --port 8000
 
-  # Caddy terminates the Cloudflare -> origin TLS leg (using a Cloudflare
-  # Origin Certificate) and reverse-proxies to the peekaboo container.
-  # Cloudflare SSL mode must be "Full (Strict)".
-  # Origin cert files live in ./caddy/origin.pem and ./caddy/origin.key
-
 volumes:
   peekaboo_data:
-  caddy_config:
