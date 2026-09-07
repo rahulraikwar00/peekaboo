@@ -46,6 +46,12 @@ class MemoryStorage(Storage):
         record["revoked"] = True
         return True
 
+    def has_active_api_keys(self, owner_id) -> bool:
+        return any(
+            rec.get("owner_id") == owner_id and not rec.get("revoked")
+            for rec in owner_api_keys.values()
+        )
+
     def upsert_owner(self, email: str, provider: str) -> str:
         from server.state import owners
         key = (provider, email)

@@ -138,6 +138,19 @@ class SqliteStorage(Storage):
             finally:
                 conn.close()
 
+    def has_active_api_keys(self, owner_id) -> bool:
+        with self._lock:
+            conn = _conn(self.db_path)
+            try:
+                row = conn.execute(
+                    "SELECT key_hash FROM owner_api_keys "
+                    "WHERE owner_id=? AND revoked_at IS NULL LIMIT 1",
+                    (owner_id,),
+                ).fetchone()
+                return row is not None
+            finally:
+                conn.close()
+
     def upsert_owner(self, email: str, provider: str) -> str:
         with self._lock:
             conn = _conn(self.db_path)

@@ -18,6 +18,10 @@ class Storage(ABC):
         ...
 
     @abstractmethod
+    def has_active_api_keys(self, owner_id) -> bool:
+        """Return True if the owner has at least one non-revoked API key."""
+
+    @abstractmethod
     def upsert_owner(self, email: str, provider: str) -> str:
         """Create or look up an owner row by (provider, email). Return owner_id."""
 

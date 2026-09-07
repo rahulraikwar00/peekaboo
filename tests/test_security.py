@@ -332,6 +332,64 @@ def test_oauth_callback_exchanges_code_on_isolated_client(monkeypatch):
     main.supabase = original
 
 
+def test_oauth_callback_skips_api_key_dialog_for_returning_owner(monkeypatch):
+    from server.routes import auth as auth_routes
+
+    fake_shared = FakeSupabase()
+    fake_shared.auth = None
+    original = main.supabase
+    main.supabase = fake_shared
+
+    class FakeUser:
+        id = "owner-uuid"
+
+    class FakeSession:
+        user = FakeUser()
+
+    class FakeAuth:
+        def exchange_code_for_session(self, params):
+            return FakeSession()
+
+    class FakeThrowawayClient:
+        def __init__(self, *args, **kwargs):
+            self.auth = FakeAuth()
+
+    monkeypatch.setattr(auth_routes, "create_client", lambda *a, **k: FakeThrowawayClient())
+    monkeypatch.setattr(auth_routes, "get_supabase_client", lambda: fake_shared)
+    monkeypatch.setattr(auth_routes, "_persist_owner", lambda provider, email: "owner-123")
+    monkeypatch.setattr(auth_routes, "_mint_api_key", lambda owner_id: "minted-key")
+
+    # Returning owner with an existing active API key -> no welcome dialog.
+    fake_shared.table("owner_api_keys").data = [{"key_hash": "existing"}]
+    main.pending_oauth["state-2"] = {
+        "code_verifier": "cv-123",
+        "redirect_to": "http://server/cb",
+    }
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/auth/oauth/callback?state=state-2&code=code-1",
+            follow_redirects=False,
+        )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
+
+    # First-time owner (no keys yet) -> mints a key and shows the dialog.
+    fake_shared.table("owner_api_keys").data = []
+    main.pending_oauth["state-3"] = {
+        "code_verifier": "cv-123",
+        "redirect_to": "http://server/cb",
+    }
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/auth/oauth/callback?state=state-3&code=code-1",
+            follow_redirects=False,
+        )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard?welcome=1&key=minted-key"
+
+    main.supabase = original
+
+
 def test_secure_headers_on_html_response():
     with TestClient(main.app) as client:
         r = client.get("/")

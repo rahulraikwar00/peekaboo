@@ -23,6 +23,7 @@ from server.config import get_supabase_client, logger, public_base_url
 from server.services.session import make_session_cookie, owner_from_request
 from server.services.storage import (
     get_owner_id_from_api_key,
+    has_active_api_keys,
     insert_owner_api_key,
 )
 
@@ -144,8 +145,14 @@ async def oauth_callback(request: Request):
         return PlainTextResponse(f"OAuth callback error: {exc}", status_code=400)
 
     owner_id = _persist_owner("google" if "google" in (state or "") else "github", email)
-    api_key = _mint_api_key(owner_id)
-    response = _post_login_redirect(api_key)
+
+    # Only mint and show a new API key on first-ever login. Returning users
+    # already have an active key, so skip the welcome dialog entirely.
+    if has_active_api_keys(owner_id):
+        response = RedirectResponse(url="/dashboard", status_code=303)
+    else:
+        api_key = _mint_api_key(owner_id)
+        response = _post_login_redirect(api_key)
     response.headers.append("Set-Cookie", make_session_cookie(owner_id))
     return response
 
