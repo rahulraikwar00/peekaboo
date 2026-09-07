@@ -102,15 +102,18 @@ async def oauth_start(request: Request, provider: str):
         "redirect_to": redirect_to,
     }
     code_challenge = generate_pkce_challenge(code_verifier)
+    params = {
+        "provider": provider,
+        "redirect_to": redirect_to,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "s256",
+    }
+    if provider == "google":
+        params["prompt"] = "select_account"
     auth_url = (
         f"{os.environ['SUPABASE_URL'].rstrip('/')}/auth/v1/authorize"
         + "?"
-        + urlencode({
-            "provider": provider,
-            "redirect_to": redirect_to,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "s256",
-        })
+        + urlencode(params)
     )
     return RedirectResponse(url=auth_url, status_code=303)
 
